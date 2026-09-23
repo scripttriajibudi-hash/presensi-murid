@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portal Presensi Murid - SMKN 1 Klaten</title>
+  <title>Portal Presensi v.20 - SMKN 1 Klaten</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  
   <style>
     body { background-color: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
     .header-bar { background: #1a2332; color: white; padding: 15px 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
@@ -16,6 +18,17 @@
     .clock-display { font-size: 2.8rem; font-weight: bold; font-family: monospace; color: #2563eb; line-height: 1; }
     .date-display { font-size: 1.1rem; color: #0dcaf0; margin-bottom: 2px; }
     .watermark-overlay { position: absolute; bottom: 15px; right: 15px; pointer-events: none; z-index: 10; }
+    
+    /* V20: CSS Panel Monitor Latar Belakang */
+    .sync-monitor { 
+        position: fixed; bottom: 20px; left: 20px; background: rgba(26, 35, 50, 0.95); 
+        color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 9999; 
+        box-shadow: 0 10px 25px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 15px; 
+        border-left: 5px solid #f59e0b; font-family: monospace; font-size: 1.1rem;
+        transition: all 0.3s ease;
+    }
+    .spin-icon { animation: spin 1.5s linear infinite; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -29,13 +42,19 @@
       </div>
     </div>
     
-    <div class="d-flex gap-3 align-items-center">
-      <div class="text-end me-3">
+    <div class="d-flex gap-2 align-items-center">
+      <div class="text-end me-2">
         <div id="realtimeDate" class="fw-bold date-display">Memuat Tanggal...</div>
         <div id="realtimeClock" class="clock-display text-white" style="font-size: 1.5rem;">00:00:00</div>
       </div>
-      <button class="btn btn-outline-info btn-sm fw-bold" onclick="downloadDatabaseMurid()"><i class="fas fa-cloud-download-alt me-1"></i> 1. Tarik DB Murid</button>
+      
+      <span id="dbStatusBadge" class="badge bg-secondary p-2 me-1" style="font-size: 0.85rem;"><i class="fas fa-database me-1"></i> DB Kosong</span>
+      
+      <button class="btn btn-outline-info btn-sm fw-bold" onclick="downloadDatabaseMurid()"><i class="fas fa-sync-alt me-1"></i> 1. Update DB</button>
       <button class="btn btn-warning btn-sm fw-bold" onclick="mulaiSinkronisasiKeServer()"><i class="fas fa-paper-plane me-1"></i> 2. Kirim Server (<span id="badgeAntrean">0</span>)</button>
+      <button class="btn btn-success btn-sm fw-bold" onclick="exportExcelOffline()"><i class="fas fa-file-excel me-1"></i> 3. Backup Excel</button>
+      <!-- V20: Tombol Pengaturan Folder Senyap -->
+      <button class="btn btn-primary btn-sm fw-bold" onclick="aturFolderFoto()"><i class="fas fa-folder-open me-1"></i> 4. Set Folder Foto</button>
     </div>
   </div>
 
@@ -67,6 +86,11 @@
           <div class="text-center mb-4 text-muted fw-bold">
             Total Presensi Mesin Ini: <span id="countLokalDisplay" class="text-primary fs-5">0</span> Murid
           </div>
+          
+          <!-- Indikator Folder Aktif -->
+          <div class="text-center mb-3">
+             <span id="folderStatusBadge" class="badge bg-secondary p-2"><i class="fas fa-folder me-1"></i> Folder Foto: Unduh Biasa (Browser)</span>
+          </div>
 
           <div class="alert alert-info text-center rounded-3">
             <i class="fas fa-info-circle me-2"></i>Tekan <b>ENTER</b>. Pastikan wajah terlihat di kamera!
@@ -76,36 +100,61 @@
     </div>
   </div>
 
+  <!-- V20: PANEL MONITOR LATAR BELAKANG -->
+  <div id="syncMonitor" class="sync-monitor d-none">
+      <i id="syncIcon" class="fas fa-sync-alt spin-icon text-warning fa-lg"></i>
+      <div class="d-flex flex-column">
+          <span id="syncProgressText" class="fw-bold">Menyiapkan server...</span>
+          <small id="syncDetailText" class="text-info" style="font-size: 0.8rem;">Jangan tutup halaman ini</small>
+      </div>
+  </div>
+
   <script>
-    // URL Web App GAS Bapak yang terbaru (Sudah otomatis saya pasang)
     const API_URL = "https://script.google.com/macros/s/AKfycbwyt-GG3wKwyvpsgr7ug7lbSfNEnhcA_P-rQNPOBjozhHi6YUQHMycZsl_3xlKZ2fs8/exec";
+    const AUTO_SYNC_THRESHOLD = 250; 
+    const AUTO_RETRY_DELAY_MS = 10000; 
     
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const nisInput = document.getElementById('nisInput');
     let isProcessing = false;
     let isSyncing = false; 
+    
+    // Variabel untuk menyimpan akses folder senyap
+    let photoDirectoryHandle = null;
+
+    window.addEventListener('DOMContentLoaded', () => { cekStatusDatabaseLokal(); });
+
+    // V20: Fungsi Meminta Akses Folder dari PC
+    async function aturFolderFoto() {
+        try {
+            // Membuka dialog pemilih folder bawaan Windows/Chrome
+            photoDirectoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            
+            const badge = document.getElementById('folderStatusBadge');
+            badge.className = 'badge bg-success p-2';
+            badge.innerHTML = `<i class="fas fa-check-circle me-1"></i> Folder Foto: [ ${photoDirectoryHandle.name} ]`;
+            
+            Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Akses folder berhasil! Foto akan tersimpan senyap ke folder ini.', showConfirmButton: false, timer: 3000 });
+            nisInput.focus();
+        } catch (e) {
+            console.log('Pemilihan folder dibatalkan.', e);
+        }
+    }
+
+    function cekStatusDatabaseLokal() {
+        const dbLokal = JSON.parse(localStorage.getItem('db_murid_lokal') || '[]');
+        const badge = document.getElementById('dbStatusBadge');
+        if (dbLokal.length > 0) {
+            badge.className = 'badge bg-primary p-2 me-1';
+            badge.innerHTML = `<i class="fas fa-database me-1"></i> DB Siap (${dbLokal.length})`;
+        }
+    }
 
     let db;
     const request = indexedDB.open("PresensiLokalDB", 1);
-    request.onupgradeneeded = function(e) {
-        db = e.target.result;
-        db.createObjectStore("scans", { keyPath: "id", autoIncrement: true });
-    };
-    request.onsuccess = function(e) { 
-        db = e.target.result; 
-        updateBadgeAntrean(); 
-        hitungTotalPresensiLokal(false); 
-    };
-
-    window.addEventListener('beforeunload', function (e) {
-      const antreanEl = document.getElementById('badgeAntrean');
-      const sisaData = parseInt(antreanEl.innerText) || 0;
-      if (sisaData > 0) {
-          e.preventDefault();
-          e.returnValue = `Tunggu! Ada ${sisaData} data presensi yang belum terkirim ke server.`;
-      }
-    });
+    request.onupgradeneeded = function(e) { db = e.target.result; db.createObjectStore("scans", { keyPath: "id", autoIncrement: true }); };
+    request.onsuccess = function(e) { db = e.target.result; updateBadgeAntrean(); hitungTotalPresensiLokal(false); };
 
     navigator.mediaDevices.getUserMedia({ video: true })
       .then(stream => { video.srcObject = stream; })
@@ -120,17 +169,15 @@
     document.addEventListener('click', () => { if(!isProcessing) nisInput.focus(); });
 
     function downloadDatabaseMurid() {
-      Swal.fire({ title: 'Menarik Data...', text: 'Mengunduh database murid dari server', didOpen: () => Swal.showLoading() });
-      fetch(API_URL, {
-        method: 'POST', body: JSON.stringify({ action: 'getSiswaData' }), headers: { "Content-Type": "text/plain;charset=utf-8" }
-      })
-      .then(res => res.json())
-      .then(res => {
+      Swal.fire({ title: 'Menarik Data...', didOpen: () => Swal.showLoading() });
+      fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'getSiswaData' }), headers: { "Content-Type": "text/plain;charset=utf-8" } })
+      .then(res => res.json()).then(res => {
         if(res.success) {
           localStorage.setItem('db_murid_lokal', JSON.stringify(res.data));
-          Swal.fire({ icon: 'success', title: 'Berhasil', text: `${res.data.length} data murid tersimpan di lokal!`, timer: 2000, showConfirmButton: false });
+          cekStatusDatabaseLokal(); 
+          Swal.fire({ icon: 'success', title: 'Berhasil', text: `${res.data.length} data murid tersimpan!`, timer: 2000, showConfirmButton: false });
           nisInput.focus();
-        } else { Swal.fire('Gagal', res.message, 'error'); }
+        }
       }).catch(err => Swal.fire('Error', 'Gagal terhubung ke server.', 'error'));
     }
 
@@ -141,11 +188,6 @@
         isProcessing = true; this.disabled = true;
 
         const dbLokal = JSON.parse(localStorage.getItem('db_murid_lokal') || '[]');
-        if (dbLokal.length === 0) {
-            Swal.fire({ icon: 'warning', title: 'Database Kosong', text: 'Klik "Tarik DB Murid" terlebih dahulu!'});
-            isProcessing = false; this.disabled = false; this.value = ''; return;
-        }
-
         const student = dbLokal.find(s => s.nis === nis);
         if (!student) {
             Swal.fire({ icon: 'error', title: 'Tidak Ditemukan', text: 'NIS tidak ada di database lokal.', timer: 2000, showConfirmButton: false });
@@ -160,41 +202,60 @@
         const isLate = (h > 7 || (h === 7 && (m > 0 || (s > 0 && m >= 0))));
 
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+        const ctx = canvas.getContext('2d'); ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const photoDataUrl = canvas.toDataURL('image/jpeg', 0.8);
         
-        const a = document.createElement('a');
-        a.href = photoDataUrl;
-        a.download = `Presensi_${nis}_${dNow.toISOString().replace(/[:\.]/g, '-')}.jpg`;
-        a.click(); 
-
+        // V20: ALGORITMA PENYIMPANAN FOTO SENYAP KE FOLDER TERPILIH
+        const namaFileFoto = `Presensi_${nis}_${tglStr.replace(/\//g,'-')}_${jamStr.replace(/:/g,'-')}.jpg`;
+        
+        canvas.toBlob(async (blob) => {
+            if (photoDirectoryHandle) {
+                try {
+                    // Tulis langsung ke folder PC tanpa pop-up download browser
+                    const fileHandle = await photoDirectoryHandle.getFileHandle(namaFileFoto, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                } catch(e) {
+                    console.error('Gagal menulis ke folder:', e);
+                    fallbackUnduhanBiasa(canvas.toDataURL('image/jpeg', 0.8), namaFileFoto);
+                }
+            } else {
+                // Jika belum set folder, gunakan cara download biasa
+                fallbackUnduhanBiasa(canvas.toDataURL('image/jpeg', 0.8), namaFileFoto);
+            }
+        }, 'image/jpeg', 0.8);
+        
         const tx = db.transaction(["scans"], "readwrite");
         tx.objectStore("scans").add({ nis: nis, tanggal: tglStr, waktu: jamStr });
         
         tx.oncomplete = function() {
-            updateBadgeAntrean(); 
             hitungTotalPresensiLokal(true);
+            const countReq = db.transaction(["scans"], "readonly").objectStore("scans").count();
+            countReq.onsuccess = function() { 
+                document.getElementById('badgeAntrean').innerText = countReq.result; 
+                if (countReq.result >= AUTO_SYNC_THRESHOLD && !isSyncing) {
+                    exportExcelOffline(true); mulaiSinkronisasiKeServer();
+                }
+            }
             
-            const icon = isLate ? 'fa-user-clock' : 'fa-check-circle';
             const color = isLate ? '#dc3545' : '#198754';
-            const statusLabel = isLate ? 'TERLAMBAT' : 'TEPAT WAKTU';
-
             Swal.fire({
-              imageUrl: photoDataUrl, imageWidth: 200,
-              title: `<div style="color: ${color};"><i class="fas ${icon} me-2"></i>${statusLabel}</div>`,
-              html: `<h4 class="fw-bold mt-2">${student.nama}</h4>
-                     <p class="mb-1 text-muted">NISN: ${nis} | Kelas: ${student.kelas}</p>
-                     <h2 style="color: ${color}; font-family: monospace; font-weight: bold;">${jamStr} WIB</h2>`,
+              imageUrl: canvas.toDataURL('image/jpeg', 0.5), imageWidth: 200,
+              title: `<div style="color: ${color};"><i class="fas ${isLate?'fa-user-clock':'fa-check-circle'} me-2"></i>${isLate?'TERLAMBAT':'TEPAT WAKTU'}</div>`,
+              html: `<h4 class="fw-bold mt-2">${student.nama}</h4><p class="mb-1 text-muted">NISN: ${nis} | Kelas: ${student.kelas}</p><h2 style="color: ${color}; font-family: monospace; font-weight: bold;">${jamStr} WIB</h2>`,
               timer: 1500, showConfirmButton: false
             });
-
             isProcessing = false; nisInput.disabled = false; nisInput.value = ''; nisInput.focus();
         };
       }
     });
 
+    function fallbackUnduhanBiasa(dataUrl, namaFile) {
+        const a = document.createElement('a'); a.href = dataUrl; a.download = namaFile; a.click(); 
+    }
+
+    // V20: PENGIRIMAN DATA DENGAN PANEL MONITOR LIVE
     function mulaiSinkronisasiKeServer() {
         if (!db || isSyncing) return;
         const tx = db.transaction(["scans"], "readonly");
@@ -204,23 +265,41 @@
             const dataBelumTerkirim = request.result;
             if (dataBelumTerkirim.length > 0) {
                 isSyncing = true;
-                document.getElementById('badgeAntrean').innerText = 'Mengirim...';
-                kirimDataSatuPerSatu(dataBelumTerkirim, 0);
+                
+                // Munculkan Monitor
+                const monitor = document.getElementById('syncMonitor');
+                monitor.classList.remove('d-none');
+                monitor.style.borderLeftColor = '#f59e0b'; // Warna kuning (proses)
+                document.getElementById('syncIcon').className = 'fas fa-sync-alt spin-icon text-warning fa-lg';
+                
+                kirimDataSatuPerSatu(dataBelumTerkirim, 0, dataBelumTerkirim.length);
             } else {
                 Swal.fire({ icon: 'info', title: 'Tuntas', text: 'Tidak ada data antrean.', timer: 1500, showConfirmButton: false });
             }
         };
     }
 
-    function kirimDataSatuPerSatu(dataArray, currentIndex) {
+    function kirimDataSatuPerSatu(dataArray, currentIndex, totalData) {
         if (currentIndex >= dataArray.length) {
             isSyncing = false; updateBadgeAntrean();
-            Swal.fire({ icon: 'success', title: 'Terkirim', text: 'Seluruh data lokal berhasil direkap ke server!', timer: 2000, showConfirmButton: false });
+            
+            // Monitor Sukses
+            document.getElementById('syncIcon').className = 'fas fa-check-circle text-success fa-lg';
+            document.getElementById('syncMonitor').style.borderLeftColor = '#198754';
+            document.getElementById('syncProgressText').innerText = `Selesai Terkirim!`;
+            document.getElementById('syncDetailText').innerText = `${totalData} data berhasil masuk server.`;
+            
+            // Sembunyikan monitor setelah 4 detik
+            setTimeout(() => { document.getElementById('syncMonitor').classList.add('d-none'); }, 4000);
             return;
         }
-
+        
         const dataKirim = dataArray[currentIndex];
         
+        // Update Teks Monitor secara Real-time
+        document.getElementById('syncProgressText').innerText = `Mengirim: ${currentIndex + 1} dari ${totalData}`;
+        document.getElementById('syncDetailText').innerText = `Data NIS: ${dataKirim.nis}`;
+
         fetch(API_URL, {
             method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
             body: JSON.stringify({ action: "prosesScanHadir", nis: dataKirim.nis, waktu: dataKirim.waktu, tanggal: dataKirim.tanggal, foto: null })
@@ -230,14 +309,46 @@
             const tx = db.transaction(["scans"], "readwrite");
             tx.objectStore("scans").delete(dataKirim.id); 
             tx.oncomplete = () => {
-                updateBadgeAntrean();
-                setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1), 500); 
+                document.getElementById('badgeAntrean').innerText = dataArray.length - (currentIndex + 1);
+                setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData), 500); 
             };
-        })
-        .catch(err => {
+        }).catch(err => {
             isSyncing = false; updateBadgeAntrean();
-            Swal.fire({ icon: 'error', title: 'Koneksi Terputus', text: `Gagal mengirim data NIS ${dataKirim.nis}. Sisa akan dilanjutkan nanti.` });
+            
+            // Monitor Error dan Hitung Mundur Auto-Retry
+            document.getElementById('syncIcon').className = 'fas fa-exclamation-triangle text-danger fa-lg spin-icon';
+            document.getElementById('syncMonitor').style.borderLeftColor = '#dc3545';
+            document.getElementById('syncProgressText').innerText = `Koneksi Terputus!`;
+            
+            let countdown = AUTO_RETRY_DELAY_MS / 1000;
+            const retryInterval = setInterval(() => {
+                countdown--;
+                document.getElementById('syncDetailText').innerText = `Menyambung ulang dalam ${countdown} detik...`;
+                if(countdown <= 0) {
+                    clearInterval(retryInterval);
+                    mulaiSinkronisasiKeServer(); // Panggil ulang otomatis
+                }
+            }, 1000);
         });
+    }
+
+    // Export Excel (Tetap Sama)
+    function exportExcelOffline(isAuto = false) {
+        if (!db) return;
+        const tx = db.transaction(["scans"], "readonly");
+        const request = tx.objectStore("scans").getAll();
+        request.onsuccess = function() {
+            const dataAntrean = request.result;
+            if (dataAntrean.length === 0) return;
+            const dbLokal = JSON.parse(localStorage.getItem('db_murid_lokal') || '[]');
+            let excelData = [['No', 'Tanggal', 'Waktu', 'NISN', 'Nama Siswa', 'Kelas']];
+            dataAntrean.forEach((scan, i) => {
+                const s = dbLokal.find(x => x.nis === scan.nis) || { nama: '-', kelas: '-' };
+                excelData.push([i + 1, scan.tanggal, scan.waktu, scan.nis, s.nama, s.kelas]);
+            });
+            const ws = XLSX.utils.aoa_to_sheet(excelData); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Backup_Presensi");
+            XLSX.writeFile(wb, `Backup_Presensi_${new Date().toISOString().slice(0,10)}.xlsx`);
+        };
     }
 
     function updateBadgeAntrean() {
