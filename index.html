@@ -158,12 +158,18 @@
         }
 
         const dNow = new Date();
+	// PERBAIKAN: Format mutlak HH:mm:ss menggunakan pemisah titik dua (:)
+        const jamStr = String(dNow.getHours()).padStart(2, '0') + ':' + 
+                       String(dNow.getMinutes()).padStart(2, '0') + ':' + 
+                       String(dNow.getSeconds()).padStart(2, '0');
         const tglStr = `${String(dNow.getDate()).padStart(2, '0')}/${String(dNow.getMonth() + 1).padStart(2, '0')}/${dNow.getFullYear()}`;
-        const jamStr = dNow.toLocaleTimeString('id-ID', { hour12: false });
         
         // Penentuan Terlambat Lokal
         const h = dNow.getHours(); const m = dNow.getMinutes();
-        const isLate = (h > 7 || (h === 7 && m > 0));
+        const tglStr = `${String(dNow.getDate()).padStart(2, '0')}/${String(dNow.getMonth() + 1).padStart(2, '0')}/${dNow.getFullYear()}`;
+        const jamStr = dNow.toLocaleTimeString('id-ID', { hour12: false });
+        
+
 
         // Eksekusi Download Foto ke PC (Tidak disimpan ke IndexedDB agar ringan)
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
