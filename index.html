@@ -7,13 +7,11 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
     body { background-color: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
     .header-bar { background: #1a2332; color: white; padding: 15px 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .camera-box { border-radius: 12px; overflow: hidden; background: #000; position: relative; border: 4px solid #fff; box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
     video { width: 100%; height: auto; transform: scaleX(-1); }
-    #faceOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; transform: scaleX(-1); }
     .input-barcode { font-size: 2rem; font-weight: bold; text-align: center; padding: 20px; border-radius: 12px; letter-spacing: 2px; }
     .clock-display { font-size: 2.8rem; font-weight: bold; font-family: monospace; color: #2563eb; line-height: 1; }
     .date-display { font-size: 1.1rem; color: #0dcaf0; margin-bottom: 2px; }
@@ -31,7 +29,6 @@
       </div>
     </div>
     
-    <!-- PANEL TOMBOL SINKRONISASI -->
     <div class="d-flex gap-3 align-items-center">
       <div class="text-end me-3">
         <div id="realtimeDate" class="fw-bold date-display">Memuat Tanggal...</div>
@@ -45,11 +42,9 @@
   <div class="container-fluid flex-grow-1 d-flex align-items-center justify-content-center p-4">
     <div class="row w-100 max-w-1200">
       
-      <!-- Kamera -->
       <div class="col-md-6 d-flex flex-column align-items-center justify-content-center">
         <div class="camera-box w-100">
           <video id="videoElement" autoplay playsinline></video>
-          <canvas id="faceOverlay"></canvas>
           <div class="watermark-overlay">
              <div class="d-flex align-items-center bg-dark bg-opacity-50 p-2 rounded-3 border border-secondary">
                  <div class="text-start text-white" style="font-size: 0.75rem; text-shadow: 1px 1px 2px black;">
@@ -63,7 +58,6 @@
         <canvas id="canvasElement" style="display:none;"></canvas>
       </div>
 
-      <!-- Input Data -->
       <div class="col-md-6 d-flex flex-column align-items-center justify-content-center">
         <div class="card border-0 shadow-lg p-5 w-100" style="border-radius: 20px;">
           <h2 class="fw-bold text-center mb-4">Silakan Scan Kartu<br>atau Ketik NIS</h2>
@@ -83,46 +77,48 @@
   </div>
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbwyt-GG3wKwyvpsgr7ug7lbSfNEnhcA_P-rQNPOBjozhHi6YUQHMycZsl_3xlKZ2fs8/exec"; // Ganti URL Eksekusi GAS
+    // URL Web App GAS Bapak yang terbaru (Sudah otomatis saya pasang)
+    const API_URL = "https://script.google.com/macros/s/AKfycbwyt-GG3wKwyvpsgr7ug7lbSfNEnhcA_P-rQNPOBjozhHi6YUQHMycZsl_3xlKZ2fs8/exec";
     
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
-    const faceOverlay = document.getElementById('faceOverlay');
     const nisInput = document.getElementById('nisInput');
     let isProcessing = false;
     let isSyncing = false; 
 
-    // Inisialisasi DB Lokal
     let db;
     const request = indexedDB.open("PresensiLokalDB", 1);
     request.onupgradeneeded = function(e) {
         db = e.target.result;
         db.createObjectStore("scans", { keyPath: "id", autoIncrement: true });
     };
-    request.onsuccess = function(e) { db = e.target.result; updateBadgeAntrean(); hitungTotalPresensiLokal(); };
+    request.onsuccess = function(e) { 
+        db = e.target.result; 
+        updateBadgeAntrean(); 
+        hitungTotalPresensiLokal(false); 
+    };
 
-    // Proteksi Tutup Tab Jika Ada Data Belum Terkirim
     window.addEventListener('beforeunload', function (e) {
       const antreanEl = document.getElementById('badgeAntrean');
       const sisaData = parseInt(antreanEl.innerText) || 0;
       if (sisaData > 0) {
           e.preventDefault();
-          e.returnValue = `Tunggu! Ada ${sisaData} data presensi yang belum terkirim ke server. Mohon klik tombol 'Kirim Server' terlebih dahulu.`;
+          e.returnValue = `Tunggu! Ada ${sisaData} data presensi yang belum terkirim ke server.`;
       }
     });
 
-    // Modul Kamera
-    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => { video.srcObject = stream; }).catch(() => { Swal.fire('Error Kamera', 'Kamera tidak terdeteksi.', 'error'); });
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => { video.srcObject = stream; })
+      .catch(() => { Swal.fire('Error Kamera', 'Kamera tidak terdeteksi.', 'error'); });
     
     setInterval(() => {
       const d = new Date();
       document.getElementById('realtimeDate').innerText = d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-      document.getElementById('realtimeClock').innerText = d.toLocaleTimeString('id-ID', { hour12: false });
+      document.getElementById('realtimeClock').innerText = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
     }, 1000);
 
     document.addEventListener('click', () => { if(!isProcessing) nisInput.focus(); });
 
-    // 1. FUNGSI DOWNLOAD DATABASE MURID
     function downloadDatabaseMurid() {
       Swal.fire({ title: 'Menarik Data...', text: 'Mengunduh database murid dari server', didOpen: () => Swal.showLoading() });
       fetch(API_URL, {
@@ -138,7 +134,6 @@
       }).catch(err => Swal.fire('Error', 'Gagal terhubung ke server.', 'error'));
     }
 
-    // 2. PROSES SCAN & DETEKSI LOKAL INSTAN
     nisInput.addEventListener('keyup', function(e) {
       if (e.key === 'Enter') {
         const nis = this.value.trim();
@@ -158,20 +153,12 @@
         }
 
         const dNow = new Date();
-	// PERBAIKAN: Format mutlak HH:mm:ss menggunakan pemisah titik dua (:)
-        const jamStr = String(dNow.getHours()).padStart(2, '0') + ':' + 
-                       String(dNow.getMinutes()).padStart(2, '0') + ':' + 
-                       String(dNow.getSeconds()).padStart(2, '0');
+        const jamStr = String(dNow.getHours()).padStart(2, '0') + ':' + String(dNow.getMinutes()).padStart(2, '0') + ':' + String(dNow.getSeconds()).padStart(2, '0');
         const tglStr = `${String(dNow.getDate()).padStart(2, '0')}/${String(dNow.getMonth() + 1).padStart(2, '0')}/${dNow.getFullYear()}`;
         
-        // Penentuan Terlambat Lokal
-        const h = dNow.getHours(); const m = dNow.getMinutes();
-        const tglStr = `${String(dNow.getDate()).padStart(2, '0')}/${String(dNow.getMonth() + 1).padStart(2, '0')}/${dNow.getFullYear()}`;
-        const jamStr = dNow.toLocaleTimeString('id-ID', { hour12: false });
-        
+        const h = dNow.getHours(); const m = dNow.getMinutes(); const s = dNow.getSeconds();
+        const isLate = (h > 7 || (h === 7 && (m > 0 || (s > 0 && m >= 0))));
 
-
-        // Eksekusi Download Foto ke PC (Tidak disimpan ke IndexedDB agar ringan)
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
         ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
@@ -181,16 +168,15 @@
         const a = document.createElement('a');
         a.href = photoDataUrl;
         a.download = `Presensi_${nis}_${dNow.toISOString().replace(/[:\.]/g, '-')}.jpg`;
-        a.click(); // Unduh ke folder Downloads PC
+        a.click(); 
 
-        // Simpan Log ke IndexedDB untuk dikirim ke server (TANPA FOTO)
         const tx = db.transaction(["scans"], "readwrite");
         tx.objectStore("scans").add({ nis: nis, tanggal: tglStr, waktu: jamStr });
         
         tx.oncomplete = function() {
-            updateBadgeAntrean(); hitungTotalPresensiLokal();
+            updateBadgeAntrean(); 
+            hitungTotalPresensiLokal(true);
             
-            // Tampilan Popup Cepat (Lokal)
             const icon = isLate ? 'fa-user-clock' : 'fa-check-circle';
             const color = isLate ? '#dc3545' : '#198754';
             const statusLabel = isLate ? 'TERLAMBAT' : 'TEPAT WAKTU';
@@ -209,7 +195,6 @@
       }
     });
 
-    // 3. FUNGSI KIRIM MANUAL KE SERVER (TANPA FOTO)
     function mulaiSinkronisasiKeServer() {
         if (!db || isSyncing) return;
         const tx = db.transaction(["scans"], "readonly");
@@ -243,10 +228,10 @@
         .then(res => res.json())
         .then(res => {
             const tx = db.transaction(["scans"], "readwrite");
-            tx.objectStore("scans").delete(dataKirim.id); // Hapus setelah sukses
+            tx.objectStore("scans").delete(dataKirim.id); 
             tx.oncomplete = () => {
                 updateBadgeAntrean();
-                setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1), 500); // Jeda 0.5 detik antar data
+                setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1), 500); 
             };
         })
         .catch(err => {
@@ -261,30 +246,14 @@
         countReq.onsuccess = function() { document.getElementById('badgeAntrean').innerText = countReq.result; }
     }
     
-    function hitungTotalPresensiLokal() {
-        // Hitung sederhana berbasis localStorage per hari ini
-        const tglHariIni = new Date().toDateString();
-        let stats = JSON.parse(localStorage.getItem('statistik_presensi') || '{"tanggal":"","count":0}');
-        if(stats.tanggal !== tglHariIni) { stats = { tanggal: tglHariIni, count: 0 }; }
-        else { stats.count += 1; }
-        localStorage.setItem('statistik_presensi', JSON.stringify(stats));
-        document.getElementById('countLokalDisplay').innerText = stats.count - 1 >= 0 ? stats.count - 1 : 0; 
-        // Note: -1 kompensasi eksekusi saat onsuccess DB. Akan akurat +1 saat input real.
-    }
-    
-    // Patch akurasi perhitungan hitungTotalPresensiLokal saat scan
-    const originalHitung = hitungTotalPresensiLokal;
-    hitungTotalPresensiLokal = function(isScan = false) {
+    function hitungTotalPresensiLokal(isScan = false) {
         const tglHariIni = new Date().toDateString();
         let stats = JSON.parse(localStorage.getItem('statistik_presensi') || '{"tanggal":"","count":0}');
         if(stats.tanggal !== tglHariIni) stats = { tanggal: tglHariIni, count: 0 };
         if(isScan) stats.count += 1;
         localStorage.setItem('statistik_presensi', JSON.stringify(stats));
         document.getElementById('countLokalDisplay').innerText = stats.count;
-    };
-    
-    // Modifikasi pemanggilan hitung saat selesai transaksi scan menjadi:
-    // tx.oncomplete = function() { updateBadgeAntrean(); hitungTotalPresensiLokal(true); ... }
+    }
   </script>
 </body>
 </html>
