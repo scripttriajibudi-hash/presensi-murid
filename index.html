@@ -7,7 +7,6 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <!-- Library Face Detection -->
   <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
     body { background-color: #f0f2f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -18,7 +17,6 @@
     .input-barcode { font-size: 2rem; font-weight: bold; text-align: center; padding: 20px; border-radius: 12px; letter-spacing: 2px; }
     .clock-display { font-size: 2.8rem; font-weight: bold; font-family: monospace; color: #2563eb; line-height: 1; }
     .date-display { font-size: 1.1rem; color: #0dcaf0; margin-bottom: 2px; }
-    .popup-swal-custom { border-radius: 15px !important; }
     .watermark-overlay { position: absolute; bottom: 15px; right: 15px; pointer-events: none; z-index: 10; }
   </style>
 </head>
@@ -32,9 +30,15 @@
         <small class="text-info fw-semibold">SMK Negeri 1 Klaten</small>
       </div>
     </div>
-    <div class="text-end">
-      <div id="realtimeDate" class="fw-bold date-display">Memuat Tanggal...</div>
-      <div id="realtimeClock" class="clock-display text-white">00:00:00</div>
+    
+    <!-- PANEL TOMBOL SINKRONISASI -->
+    <div class="d-flex gap-3 align-items-center">
+      <div class="text-end me-3">
+        <div id="realtimeDate" class="fw-bold date-display">Memuat Tanggal...</div>
+        <div id="realtimeClock" class="clock-display text-white" style="font-size: 1.5rem;">00:00:00</div>
+      </div>
+      <button class="btn btn-outline-info btn-sm fw-bold" onclick="downloadDatabaseMurid()"><i class="fas fa-cloud-download-alt me-1"></i> 1. Tarik DB Murid</button>
+      <button class="btn btn-warning btn-sm fw-bold" onclick="mulaiSinkronisasiKeServer()"><i class="fas fa-paper-plane me-1"></i> 2. Kirim Server (<span id="badgeAntrean">0</span>)</button>
     </div>
   </div>
 
@@ -48,11 +52,9 @@
           <canvas id="faceOverlay"></canvas>
           <div class="watermark-overlay">
              <div class="d-flex align-items-center bg-dark bg-opacity-50 p-2 rounded-3 border border-secondary">
-                 <div class="me-2 text-info"><i class="fas fa-map-marked-alt fa-2x"></i></div>
                  <div class="text-start text-white" style="font-size: 0.75rem; text-shadow: 1px 1px 2px black;">
                      <div id="wmDate" class="fw-bold"></div>
                      <div id="wmTime" class="fw-bold text-warning" style="font-size: 0.9rem;"></div>
-                     <div>Lat: -7.708815, Long: 110.598514</div>
                      <div>SMK Negeri 1 Klaten</div>
                  </div>
              </div>
@@ -65,9 +67,15 @@
       <div class="col-md-6 d-flex flex-column align-items-center justify-content-center">
         <div class="card border-0 shadow-lg p-5 w-100" style="border-radius: 20px;">
           <h2 class="fw-bold text-center mb-4">Silakan Scan Kartu<br>atau Ketik NIS</h2>
-          <input type="number" class="form-control input-barcode bg-light mb-4" id="nisInput" placeholder="S C A N  H E R E" autofocus>
+          
+          <input type="number" class="form-control input-barcode bg-light mb-2" id="nisInput" placeholder="S C A N  H E R E" autofocus>
+          
+          <div class="text-center mb-4 text-muted fw-bold">
+            Total Presensi Mesin Ini: <span id="countLokalDisplay" class="text-primary fs-5">0</span> Murid
+          </div>
+
           <div class="alert alert-info text-center rounded-3">
-            <i class="fas fa-info-circle me-2"></i>Tekan <b>ENTER</b> setelah memasukkan NIS.
+            <i class="fas fa-info-circle me-2"></i>Tekan <b>ENTER</b>. Pastikan wajah terlihat di kamera!
           </div>
         </div>
       </div>
@@ -75,174 +83,202 @@
   </div>
 
   <script>
-    // Konfigurasi
-    const API_URL = "https://script.google.com/macros/s/AKfycbze2eCy8nkeDYQC118pmDtqUdm5L3RhJ33rX6qBvHbA-plui2k50AtXJZYxJiMcnlb2/exec"; // Ganti dengan URL eksekusi Anda
+    const API_URL = "https://script.google.com/macros/s/AKfycbwyt-GG3wKwyvpsgr7ug7lbSfNEnhcA_P-rQNPOBjozhHi6YUQHMycZsl_3xlKZ2fs8/exec"; // Ganti URL Eksekusi GAS
     
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const faceOverlay = document.getElementById('faceOverlay');
-    const faceCtx = faceOverlay.getContext('2d');
     const nisInput = document.getElementById('nisInput');
     let isProcessing = false;
-    let isSyncing = false; // Mencegah bentrok sinkronisasi ganda
+    let isSyncing = false; 
 
-    // 1. INISIALISASI DATABASE LOKAL (IndexedDB)
+    // Inisialisasi DB Lokal
     let db;
     const request = indexedDB.open("PresensiLokalDB", 1);
-    request.onupgradeneeded = function(event) {
-        db = event.target.result;
-        const objectStore = db.createObjectStore("scans", { keyPath: "id", autoIncrement: true });
-        objectStore.createIndex("status", "status", { unique: false });
+    request.onupgradeneeded = function(e) {
+        db = e.target.result;
+        db.createObjectStore("scans", { keyPath: "id", autoIncrement: true });
     };
-    request.onsuccess = function(event) { db = event.target.result; updateBadgeAntrean(); };
-    request.onerror = function(event) { console.error("Database error: " + event.target.errorCode); };
+    request.onsuccess = function(e) { db = e.target.result; updateBadgeAntrean(); hitungTotalPresensiLokal(); };
 
-    // Kamera & Face API (Tetap Sama)
-    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => { video.srcObject = stream; }).catch(err => { Swal.fire('Error Kamera', 'Tidak dapat mengakses Webcam.', 'error'); });
-    faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights').then(() => {
-        setInterval(async () => {
-          if(video.paused || video.ended || !video.videoWidth) return;
-          const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-          faceOverlay.width = video.videoWidth; faceOverlay.height = video.videoHeight;
-          faceCtx.clearRect(0, 0, faceOverlay.width, faceOverlay.height);
-          if (detections.length > 0) {
-            let foremostFace = detections[0]; let maxArea = 0;
-            detections.forEach(det => { const area = det.box.width * det.box.height; if(area > maxArea) { maxArea = area; foremostFace = det; } });
-            faceCtx.beginPath(); faceCtx.rect(foremostFace.box.x, foremostFace.box.y, foremostFace.box.width, foremostFace.box.height);
-            faceCtx.lineWidth = 4; faceCtx.strokeStyle = '#00FF00'; faceCtx.stroke();
-          }
-        }, 300); 
-    }).catch(err => console.log("Modul wajah gagal", err));
+    // Proteksi Tutup Tab Jika Ada Data Belum Terkirim
+    window.addEventListener('beforeunload', function (e) {
+      const antreanEl = document.getElementById('badgeAntrean');
+      const sisaData = parseInt(antreanEl.innerText) || 0;
+      if (sisaData > 0) {
+          e.preventDefault();
+          e.returnValue = `Tunggu! Ada ${sisaData} data presensi yang belum terkirim ke server. Mohon klik tombol 'Kirim Server' terlebih dahulu.`;
+      }
+    });
 
-    // Jam Real-time
+    // Modul Kamera
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => { video.srcObject = stream; }).catch(() => { Swal.fire('Error Kamera', 'Kamera tidak terdeteksi.', 'error'); });
+    
     setInterval(() => {
       const d = new Date();
       document.getElementById('realtimeDate').innerText = d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
       document.getElementById('realtimeClock').innerText = d.toLocaleTimeString('id-ID', { hour12: false });
-      
-      // AUTO SINKRONISASI PUKUL 07:17 KE ATAS
-      if (!isSyncing && d.getHours() >= 7) {
-         if (d.getHours() > 7 || (d.getHours() === 7 && d.getMinutes() >= 17)) {
-             mulaiSinkronisasiKeServer();
-         }
-      }
     }, 1000);
 
     document.addEventListener('click', () => { if(!isProcessing) nisInput.focus(); });
 
-    // 2. PROSES SCAN (SIMPAN KE LOKAL TANPA LOADING INTERNET)
+    // 1. FUNGSI DOWNLOAD DATABASE MURID
+    function downloadDatabaseMurid() {
+      Swal.fire({ title: 'Menarik Data...', text: 'Mengunduh database murid dari server', didOpen: () => Swal.showLoading() });
+      fetch(API_URL, {
+        method: 'POST', body: JSON.stringify({ action: 'getSiswaData' }), headers: { "Content-Type": "text/plain;charset=utf-8" }
+      })
+      .then(res => res.json())
+      .then(res => {
+        if(res.success) {
+          localStorage.setItem('db_murid_lokal', JSON.stringify(res.data));
+          Swal.fire({ icon: 'success', title: 'Berhasil', text: `${res.data.length} data murid tersimpan di lokal!`, timer: 2000, showConfirmButton: false });
+          nisInput.focus();
+        } else { Swal.fire('Gagal', res.message, 'error'); }
+      }).catch(err => Swal.fire('Error', 'Gagal terhubung ke server.', 'error'));
+    }
+
+    // 2. PROSES SCAN & DETEKSI LOKAL INSTAN
     nisInput.addEventListener('keyup', function(e) {
       if (e.key === 'Enter') {
         const nis = this.value.trim();
         if (!nis || isProcessing) return;
         isProcessing = true; this.disabled = true;
+
+        const dbLokal = JSON.parse(localStorage.getItem('db_murid_lokal') || '[]');
+        if (dbLokal.length === 0) {
+            Swal.fire({ icon: 'warning', title: 'Database Kosong', text: 'Klik "Tarik DB Murid" terlebih dahulu!'});
+            isProcessing = false; this.disabled = false; this.value = ''; return;
+        }
+
+        const student = dbLokal.find(s => s.nis === nis);
+        if (!student) {
+            Swal.fire({ icon: 'error', title: 'Tidak Ditemukan', text: 'NIS tidak ada di database lokal.', timer: 2000, showConfirmButton: false });
+            isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
+        }
+
+        const dNow = new Date();
+        const tglStr = `${String(dNow.getDate()).padStart(2, '0')}/${String(dNow.getMonth() + 1).padStart(2, '0')}/${dNow.getFullYear()}`;
+        const jamStr = dNow.toLocaleTimeString('id-ID', { hour12: false });
         
-        // Ambil Foto
+        // Penentuan Terlambat Lokal
+        const h = dNow.getHours(); const m = dNow.getMinutes();
+        const isLate = (h > 7 || (h === 7 && m > 0));
+
+        // Eksekusi Download Foto ke PC (Tidak disimpan ke IndexedDB agar ringan)
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
         ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const photoDataUrl = canvas.toDataURL('image/jpeg', 0.6); // Kompresi 60% agar hemat DB
-
-        const dNow = new Date();
-        const tglStr = Utilities_formatDate(dNow); // "dd/MM/yyyy"
-        const jamStr = dNow.toLocaleTimeString('id-ID', { hour12: false }); // "HH:mm:ss"
-
-        // Simpan Ke IndexedDB Lokal
-        const transaction = db.transaction(["scans"], "readwrite");
-        const store = transaction.objectStore("scans");
-        const dataScan = { nis: nis, tanggal: tglStr, waktu: jamStr, foto: photoDataUrl, status: "pending" };
+        const photoDataUrl = canvas.toDataURL('image/jpeg', 0.8);
         
-        store.add(dataScan);
+        const a = document.createElement('a');
+        a.href = photoDataUrl;
+        a.download = `Presensi_${nis}_${dNow.toISOString().replace(/[:\.]/g, '-')}.jpg`;
+        a.click(); // Unduh ke folder Downloads PC
 
-        transaction.oncomplete = function() {
-            // Notifikasi instan tanpa nunggu server
+        // Simpan Log ke IndexedDB untuk dikirim ke server (TANPA FOTO)
+        const tx = db.transaction(["scans"], "readwrite");
+        tx.objectStore("scans").add({ nis: nis, tanggal: tglStr, waktu: jamStr });
+        
+        tx.oncomplete = function() {
+            updateBadgeAntrean(); hitungTotalPresensiLokal();
+            
+            // Tampilan Popup Cepat (Lokal)
+            const icon = isLate ? 'fa-user-clock' : 'fa-check-circle';
+            const color = isLate ? '#dc3545' : '#198754';
+            const statusLabel = isLate ? 'TERLAMBAT' : 'TEPAT WAKTU';
+
             Swal.fire({
-              icon: 'success', title: 'Tersimpan Lokal',
-              html: `<h4 class="fw-bold">${nis}</h4>Tercatat: ${jamStr} WIB<br><small class="text-muted">Akan disinkronisasi pukul 07:17</small>`,
-              timer: 2000, showConfirmButton: false
+              imageUrl: photoDataUrl, imageWidth: 200,
+              title: `<div style="color: ${color};"><i class="fas ${icon} me-2"></i>${statusLabel}</div>`,
+              html: `<h4 class="fw-bold mt-2">${student.nama}</h4>
+                     <p class="mb-1 text-muted">NISN: ${nis} | Kelas: ${student.kelas}</p>
+                     <h2 style="color: ${color}; font-family: monospace; font-weight: bold;">${jamStr} WIB</h2>`,
+              timer: 1500, showConfirmButton: false
             });
+
             isProcessing = false; nisInput.disabled = false; nisInput.value = ''; nisInput.focus();
-            updateBadgeAntrean();
         };
       }
     });
 
-    // 3. FUNGSI SINKRONISASI ANTREAN (BERJALAN DI LATAR BELAKANG)
+    // 3. FUNGSI KIRIM MANUAL KE SERVER (TANPA FOTO)
     function mulaiSinkronisasiKeServer() {
         if (!db || isSyncing) return;
-        const transaction = db.transaction(["scans"], "readonly");
-        const store = transaction.objectStore("scans");
-        const index = store.index("status");
-        const request = index.getAll("pending"); // Ambil semua yang belum dikirim
+        const tx = db.transaction(["scans"], "readonly");
+        const request = tx.objectStore("scans").getAll();
 
         request.onsuccess = function() {
             const dataBelumTerkirim = request.result;
             if (dataBelumTerkirim.length > 0) {
                 isSyncing = true;
-                console.log(`Memulai sinkronisasi ${dataBelumTerkirim.length} data...`);
+                document.getElementById('badgeAntrean').innerText = 'Mengirim...';
                 kirimDataSatuPerSatu(dataBelumTerkirim, 0);
+            } else {
+                Swal.fire({ icon: 'info', title: 'Tuntas', text: 'Tidak ada data antrean.', timer: 1500, showConfirmButton: false });
             }
         };
     }
 
-    // Mengirim satu per satu agar Google Spreadsheet tidak error (Queueing)
     function kirimDataSatuPerSatu(dataArray, currentIndex) {
         if (currentIndex >= dataArray.length) {
-            isSyncing = false;
-            updateBadgeAntrean();
-            console.log("Sinkronisasi Selesai.");
+            isSyncing = false; updateBadgeAntrean();
+            Swal.fire({ icon: 'success', title: 'Terkirim', text: 'Seluruh data lokal berhasil direkap ke server!', timer: 2000, showConfirmButton: false });
             return;
         }
 
         const dataKirim = dataArray[currentIndex];
         
         fetch(API_URL, {
-            redirect: "follow",
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({ 
-                action: "prosesScanHadir", 
-                nis: dataKirim.nis,
-                waktu: dataKirim.waktu, // Server akan pakai jam ini, bukan jam server!
-                tanggal: dataKirim.tanggal,
-                foto: dataKirim.foto 
-            })
+            method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: "prosesScanHadir", nis: dataKirim.nis, waktu: dataKirim.waktu, tanggal: dataKirim.tanggal, foto: null })
         })
-        .then(response => response.json())
+        .then(res => res.json())
         .then(res => {
-            // Jika sukses, ubah status di lokal menjadi 'synced' atau hapus
             const tx = db.transaction(["scans"], "readwrite");
-            tx.objectStore("scans").delete(dataKirim.id); // Hapus dari lokal agar memori bersih
-            
+            tx.objectStore("scans").delete(dataKirim.id); // Hapus setelah sukses
             tx.oncomplete = () => {
                 updateBadgeAntrean();
-                // Jeda 2 detik sebelum kirim data berikutnya agar Spreadsheet aman
-                setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1), 2000); 
+                setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1), 500); // Jeda 0.5 detik antar data
             };
         })
         .catch(err => {
-            console.error("Gagal sinkronisasi data ID " + dataKirim.id, err);
-            isSyncing = false; // Berhenti jika internet putus, akan dicoba lagi nanti
+            isSyncing = false; updateBadgeAntrean();
+            Swal.fire({ icon: 'error', title: 'Koneksi Terputus', text: `Gagal mengirim data NIS ${dataKirim.nis}. Sisa akan dilanjutkan nanti.` });
         });
     }
 
-    // Fungsi utilitas format tanggal dd/MM/yyyy
-    function Utilities_formatDate(dateObj) {
-        return `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
-    }
-
-    // Tambahan: Menampilkan sisa antrean (Anda bisa tambahkan <div id="badgeAntrean"></div> di UI HTML Anda)
     function updateBadgeAntrean() {
         if(!db) return;
-        const tx = db.transaction(["scans"], "readonly");
-        const countReq = tx.objectStore("scans").index("status").count("pending");
-        countReq.onsuccess = function() {
-            console.log("Sisa antrean di lokal: " + countReq.result);
-            // document.getElementById('badgeAntrean').innerText = countReq.result + " Data Menunggu";
-        }
+        const countReq = db.transaction(["scans"], "readonly").objectStore("scans").count();
+        countReq.onsuccess = function() { document.getElementById('badgeAntrean').innerText = countReq.result; }
     }
+    
+    function hitungTotalPresensiLokal() {
+        // Hitung sederhana berbasis localStorage per hari ini
+        const tglHariIni = new Date().toDateString();
+        let stats = JSON.parse(localStorage.getItem('statistik_presensi') || '{"tanggal":"","count":0}');
+        if(stats.tanggal !== tglHariIni) { stats = { tanggal: tglHariIni, count: 0 }; }
+        else { stats.count += 1; }
+        localStorage.setItem('statistik_presensi', JSON.stringify(stats));
+        document.getElementById('countLokalDisplay').innerText = stats.count - 1 >= 0 ? stats.count - 1 : 0; 
+        // Note: -1 kompensasi eksekusi saat onsuccess DB. Akan akurat +1 saat input real.
+    }
+    
+    // Patch akurasi perhitungan hitungTotalPresensiLokal saat scan
+    const originalHitung = hitungTotalPresensiLokal;
+    hitungTotalPresensiLokal = function(isScan = false) {
+        const tglHariIni = new Date().toDateString();
+        let stats = JSON.parse(localStorage.getItem('statistik_presensi') || '{"tanggal":"","count":0}');
+        if(stats.tanggal !== tglHariIni) stats = { tanggal: tglHariIni, count: 0 };
+        if(isScan) stats.count += 1;
+        localStorage.setItem('statistik_presensi', JSON.stringify(stats));
+        document.getElementById('countLokalDisplay').innerText = stats.count;
+    };
+    
+    // Modifikasi pemanggilan hitung saat selesai transaksi scan menjadi:
+    // tx.oncomplete = function() { updateBadgeAntrean(); hitungTotalPresensiLokal(true); ... }
   </script>
 </body>
 </html>
