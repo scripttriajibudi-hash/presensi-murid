@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portal Presensi v.20 - SMKN 1 Klaten</title>
+  <title>Portal Presensi v.21.1 - SMKN 1 Klaten</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -19,7 +19,7 @@
     .date-display { font-size: 1.1rem; color: #0dcaf0; margin-bottom: 2px; }
     .watermark-overlay { position: absolute; bottom: 15px; right: 15px; pointer-events: none; z-index: 10; }
     
-    /* V20: CSS Panel Monitor Latar Belakang */
+    /* V20.1: CSS Panel Monitor Latar Belakang */
     .sync-monitor { 
         position: fixed; bottom: 20px; left: 20px; background: rgba(26, 35, 50, 0.95); 
         color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 9999; 
@@ -53,7 +53,6 @@
       <button class="btn btn-outline-info btn-sm fw-bold" onclick="downloadDatabaseMurid()"><i class="fas fa-sync-alt me-1"></i> 1. Update DB</button>
       <button class="btn btn-warning btn-sm fw-bold" onclick="mulaiSinkronisasiKeServer()"><i class="fas fa-paper-plane me-1"></i> 2. Kirim Server (<span id="badgeAntrean">0</span>)</button>
       <button class="btn btn-success btn-sm fw-bold" onclick="exportExcelOffline()"><i class="fas fa-file-excel me-1"></i> 3. Backup Excel</button>
-      <!-- V20: Tombol Pengaturan Folder Senyap -->
       <button class="btn btn-primary btn-sm fw-bold" onclick="aturFolderFoto()"><i class="fas fa-folder-open me-1"></i> 4. Set Folder Foto</button>
     </div>
   </div>
@@ -100,7 +99,7 @@
     </div>
   </div>
 
-  <!-- V20: PANEL MONITOR LATAR BELAKANG -->
+  <!-- V20.1: PANEL MONITOR LATAR BELAKANG -->
   <div id="syncMonitor" class="sync-monitor d-none">
       <i id="syncIcon" class="fas fa-sync-alt spin-icon text-warning fa-lg"></i>
       <div class="d-flex flex-column">
@@ -110,7 +109,7 @@
   </div>
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbxZCLrjnVfghWkbYglEKbh4fS81vnNyFr7si3VIfq4oTM4keSULLBCysy31ECntRO8S/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbwyt-GG3wKwyvpsgr7ug7lbSfNEnhcA_P-rQNPOBjozhHi6YUQHMycZsl_3xlKZ2fs8/exec";
     const AUTO_SYNC_THRESHOLD = 250; 
     const AUTO_RETRY_DELAY_MS = 10000; 
     
@@ -120,17 +119,13 @@
     let isProcessing = false;
     let isSyncing = false; 
     
-    // Variabel untuk menyimpan akses folder senyap
     let photoDirectoryHandle = null;
 
     window.addEventListener('DOMContentLoaded', () => { cekStatusDatabaseLokal(); });
 
-    // V20: Fungsi Meminta Akses Folder dari PC
     async function aturFolderFoto() {
         try {
-            // Membuka dialog pemilih folder bawaan Windows/Chrome
             photoDirectoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-            
             const badge = document.getElementById('folderStatusBadge');
             badge.className = 'badge bg-success p-2';
             badge.innerHTML = `<i class="fas fa-check-circle me-1"></i> Folder Foto: [ ${photoDirectoryHandle.name} ]`;
@@ -170,7 +165,7 @@
 
     function downloadDatabaseMurid() {
       Swal.fire({ title: 'Menarik Data...', didOpen: () => Swal.showLoading() });
-      fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'getSiswaData' }), headers: { "Content-Type": "text/plain;charset=utf-8" } })
+      fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'getSiswaData' }) })
       .then(res => res.json()).then(res => {
         if(res.success) {
           localStorage.setItem('db_murid_lokal', JSON.stringify(res.data));
@@ -199,19 +194,48 @@
         const tglStr = `${String(dNow.getDate()).padStart(2, '0')}/${String(dNow.getMonth() + 1).padStart(2, '0')}/${dNow.getFullYear()}`;
         
         const h = dNow.getHours(); const m = dNow.getMinutes(); const s = dNow.getSeconds();
-        const isLate = (h > 7 || (h === 7 && (m > 0 || (s > 0 && m >= 0))));
+        const day = dNow.getDay(); // 1 = Senin, 5 = Jumat
+        
+        // V20.1 PANCAKODING: Logika Cerdas Waktu Pagi & Pulang
+        const timeInSec = h * 3600 + m * 60 + s;
+        let statusScan = "";
+        let color = "#198754"; // Hijau (Default)
+        let icon = "fa-check-circle";
+        let isPelanggaran = false;
+        
+        if (timeInSec <= 25201) { // 00:00:00 - 07:00:01
+            statusScan = "HADIR PAGI";
+        } else if (timeInSec < 36000) { // 07:00:02 - 09:59:59
+            statusScan = "TERLAMBAT PAGI";
+            color = "#dc3545"; icon = "fa-user-clock"; // Merah
+            isPelanggaran = true;
+        } else {
+            // Logika Siang/Pulang (Hari Jumat pulang jam 13:30, selainnya 15:00)
+            let batasPulangCepat = (day === 5) ? 48600 : 54000; 
+            let batasPulangTutup = 61200; // 17:00:00
+            
+            if (timeInSec < batasPulangCepat) {
+                statusScan = "PULANG CEPAT";
+                color = "#fd7e14"; icon = "fa-running"; // Oranye
+                isPelanggaran = true;
+            } else if (timeInSec <= batasPulangTutup) {
+                statusScan = "PULANG TEPAT";
+                color = "#0d6efd"; icon = "fa-home"; // Biru
+            } else {
+                statusScan = "DI LUAR JAM";
+                color = "#6c757d"; icon = "fa-times-circle"; // Abu-abu
+            }
+        }
 
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d'); ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // V20: ALGORITMA PENYIMPANAN FOTO SENYAP KE FOLDER TERPILIH
         const namaFileFoto = `Presensi_${nis}_${tglStr.replace(/\//g,'-')}_${jamStr.replace(/:/g,'-')}.jpg`;
         
         canvas.toBlob(async (blob) => {
             if (photoDirectoryHandle) {
                 try {
-                    // Tulis langsung ke folder PC tanpa pop-up download browser
                     const fileHandle = await photoDirectoryHandle.getFileHandle(namaFileFoto, { create: true });
                     const writable = await fileHandle.createWritable();
                     await writable.write(blob);
@@ -221,7 +245,6 @@
                     fallbackUnduhanBiasa(canvas.toDataURL('image/jpeg', 0.8), namaFileFoto);
                 }
             } else {
-                // Jika belum set folder, gunakan cara download biasa
                 fallbackUnduhanBiasa(canvas.toDataURL('image/jpeg', 0.8), namaFileFoto);
             }
         }, 'image/jpeg', 0.8);
@@ -239,12 +262,12 @@
                 }
             }
             
-            const color = isLate ? '#dc3545' : '#198754';
+            // Pop-Up Dinamis berdasarkan Shift
             Swal.fire({
               imageUrl: canvas.toDataURL('image/jpeg', 0.5), imageWidth: 200,
-              title: `<div style="color: ${color};"><i class="fas ${isLate?'fa-user-clock':'fa-check-circle'} me-2"></i>${isLate?'TERLAMBAT':'TEPAT WAKTU'}</div>`,
+              title: `<div style="color: ${color};"><i class="fas ${icon} me-2"></i>${statusScan}</div>`,
               html: `<h4 class="fw-bold mt-2">${student.nama}</h4><p class="mb-1 text-muted">NISN: ${nis} | Kelas: ${student.kelas}</p><h2 style="color: ${color}; font-family: monospace; font-weight: bold;">${jamStr} WIB</h2>`,
-              timer: 1500, showConfirmButton: false
+              timer: 1700, showConfirmButton: false
             });
             isProcessing = false; nisInput.disabled = false; nisInput.value = ''; nisInput.focus();
         };
@@ -255,7 +278,6 @@
         const a = document.createElement('a'); a.href = dataUrl; a.download = namaFile; a.click(); 
     }
 
-    // V20: PENGIRIMAN DATA DENGAN PANEL MONITOR LIVE
     function mulaiSinkronisasiKeServer() {
         if (!db || isSyncing) return;
         const tx = db.transaction(["scans"], "readonly");
@@ -265,13 +287,10 @@
             const dataBelumTerkirim = request.result;
             if (dataBelumTerkirim.length > 0) {
                 isSyncing = true;
-                
-                // Munculkan Monitor
                 const monitor = document.getElementById('syncMonitor');
                 monitor.classList.remove('d-none');
-                monitor.style.borderLeftColor = '#f59e0b'; // Warna kuning (proses)
+                monitor.style.borderLeftColor = '#f59e0b';
                 document.getElementById('syncIcon').className = 'fas fa-sync-alt spin-icon text-warning fa-lg';
-                
                 kirimDataSatuPerSatu(dataBelumTerkirim, 0, dataBelumTerkirim.length);
             } else {
                 Swal.fire({ icon: 'info', title: 'Tuntas', text: 'Tidak ada data antrean.', timer: 1500, showConfirmButton: false });
@@ -282,26 +301,20 @@
     function kirimDataSatuPerSatu(dataArray, currentIndex, totalData) {
         if (currentIndex >= dataArray.length) {
             isSyncing = false; updateBadgeAntrean();
-            
-            // Monitor Sukses
             document.getElementById('syncIcon').className = 'fas fa-check-circle text-success fa-lg';
             document.getElementById('syncMonitor').style.borderLeftColor = '#198754';
             document.getElementById('syncProgressText').innerText = `Selesai Terkirim!`;
             document.getElementById('syncDetailText').innerText = `${totalData} data berhasil masuk server.`;
-            
-            // Sembunyikan monitor setelah 4 detik
             setTimeout(() => { document.getElementById('syncMonitor').classList.add('d-none'); }, 4000);
             return;
         }
         
         const dataKirim = dataArray[currentIndex];
-        
-        // Update Teks Monitor secara Real-time
         document.getElementById('syncProgressText').innerText = `Mengirim: ${currentIndex + 1} dari ${totalData}`;
         document.getElementById('syncDetailText').innerText = `Data NIS: ${dataKirim.nis}`;
 
         fetch(API_URL, {
-            method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+            method: "POST", 
             body: JSON.stringify({ action: "prosesScanHadir", nis: dataKirim.nis, waktu: dataKirim.waktu, tanggal: dataKirim.tanggal, foto: null })
         })
         .then(res => res.json())
@@ -314,8 +327,6 @@
             };
         }).catch(err => {
             isSyncing = false; updateBadgeAntrean();
-            
-            // Monitor Error dan Hitung Mundur Auto-Retry
             document.getElementById('syncIcon').className = 'fas fa-exclamation-triangle text-danger fa-lg spin-icon';
             document.getElementById('syncMonitor').style.borderLeftColor = '#dc3545';
             document.getElementById('syncProgressText').innerText = `Koneksi Terputus!`;
@@ -326,13 +337,12 @@
                 document.getElementById('syncDetailText').innerText = `Menyambung ulang dalam ${countdown} detik...`;
                 if(countdown <= 0) {
                     clearInterval(retryInterval);
-                    mulaiSinkronisasiKeServer(); // Panggil ulang otomatis
+                    mulaiSinkronisasiKeServer();
                 }
             }, 1000);
         });
     }
 
-    // Export Excel (Tetap Sama)
     function exportExcelOffline(isAuto = false) {
         if (!db) return;
         const tx = db.transaction(["scans"], "readonly");
