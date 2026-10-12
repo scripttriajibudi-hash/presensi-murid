@@ -373,6 +373,7 @@
         const base64PhotoData = canvas.toDataURL('image/jpeg', 0.6); // Kompresi 60%
         const namaFileFoto = `Presensi_${nis}_${tglStr.replace(/\//g,'-')}_${jamStr.replace(/:/g,'-')}.jpg`;
         
+        // PANCAKODING: Foto tetap disimpan ke folder lokal PC (jika disetting), tapi JANGAN didownload paksa di browser.
         canvas.toBlob(async (blob) => {
             if (photoDirectoryHandle) {
                 try {
@@ -380,13 +381,13 @@
                     const writable = await fileHandle.createWritable();
                     await writable.write(blob);
                     await writable.close();
-                } catch(e) { fallbackUnduhanBiasa(base64PhotoData, namaFileFoto); }
-            } else { fallbackUnduhanBiasa(base64PhotoData, namaFileFoto); }
+                } catch(e) { /* Abaikan error, jangan fallback unduhan biasa agar browser tidak spam download */ }
+            }
         }, 'image/jpeg', 0.6);
         
-        // Simpan Base64 ke IndexedDB agar ikut terkirim ke Server
+        // PANCAKODING: Kosongkan variabel foto agar payload ke server sangat ringan (hanya teks)
         const tx = db.transaction(["scans"], "readwrite");
-        tx.objectStore("scans").add({ nis: nis, tanggal: tglStr, waktu: jamStr, foto: base64PhotoData });
+        tx.objectStore("scans").add({ nis: nis, tanggal: tglStr, waktu: jamStr, foto: "" });
         
         tx.oncomplete = function() {
             hitungTotalPresensiLokal(true);
@@ -461,7 +462,7 @@
             return;
         }
         
-        const chunkSize = 3; // Payload maksimal 3 data agar jaringan ringan
+        const chunkSize = 20; // Payload maksimal 3 data agar jaringan ringan
         const currentBatch = dataArray.slice(currentIndex, currentIndex + chunkSize);
         
         document.getElementById('syncProgressText').innerText = `Mengirim: ${Math.min(currentIndex + chunkSize, totalData)} dari ${totalData}`;
