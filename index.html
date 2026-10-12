@@ -428,7 +428,7 @@
         };
     }
 
-    // MODIFIKASI: Arahkan pengiriman ke fungsi Batch
+    // PANCAKODING: Mode Pengiriman Satu per Satu (Gaya V21 dipadukan V24)
     function mulaiSinkronisasiKeServer(isSilent = false) {
         if (!db || isSyncing) return;
         const tx = db.transaction(["scans"], "readonly");
@@ -438,51 +438,56 @@
             const dataBelumTerkirim = request.result;
             if (dataBelumTerkirim.length > 0) {
                 isSyncing = true;
-                const monitor = document.getElementById('syncMonitor');
-                monitor.classList.remove('d-none');
-                monitor.style.borderLeftColor = '#f59e0b';
-                document.getElementById('syncIcon').className = 'fas fa-sync-alt spin-icon text-warning fa-lg';
-                kirimDataBatch(dataBelumTerkirim, 0); // Panggil fungsi Batch
+                if(!isSilent) {
+                    const monitor = document.getElementById('syncMonitor');
+                    monitor.classList.remove('d-none');
+                    monitor.style.borderLeftColor = '#f59e0b';
+                    document.getElementById('syncIcon').className = 'fas fa-sync-alt spin-icon text-warning fa-lg';
+                }
+                // Lempar ke fungsi satu-per-satu
+                kirimDataSatuPerSatu(dataBelumTerkirim, 0, dataBelumTerkirim.length, isSilent);
             } else {
-                if (!isSilent) { Swal.fire({ icon: 'info', title: 'Tuntas', text: 'Tidak ada data antrean.', timer: 1500, showConfirmButton: false }); }
+                if(!isSilent) Swal.fire({ icon: 'info', title: 'Tuntas', text: 'Tidak ada data antrean.', timer: 1500, showConfirmButton: false });
             }
         };
     }
 
-    // PANCAKODING V22: Pengiriman Chunked Batching (3 Data & Foto per siklus)
-    function kirimDataBatch(dataArray, currentIndex) {
-        const totalData = dataArray.length;
-        if (currentIndex >= totalData) {
+    function kirimDataSatuPerSatu(dataArray, currentIndex, totalData, isSilent) {
+        if (currentIndex >= dataArray.length) {
             isSyncing = false; updateBadgeAntrean();
             document.getElementById('syncIcon').className = 'fas fa-check-circle text-success fa-lg';
             document.getElementById('syncMonitor').style.borderLeftColor = '#198754';
             document.getElementById('syncProgressText').innerText = `Selesai Terkirim!`;
-            document.getElementById('syncDetailText').innerText = `${totalData} presensi & foto sukses masuk server.`;
+            document.getElementById('syncDetailText').innerText = `${totalData} data berhasil masuk server.`;
             setTimeout(() => { document.getElementById('syncMonitor').classList.add('d-none'); }, 4000);
             return;
         }
         
-        const chunkSize = 20; // Payload maksimal 3 data agar jaringan ringan
-        const currentBatch = dataArray.slice(currentIndex, currentIndex + chunkSize);
-        
-        document.getElementById('syncProgressText').innerText = `Mengirim: ${Math.min(currentIndex + chunkSize, totalData)} dari ${totalData}`;
-        document.getElementById('syncDetailText').innerText = `Mengunggah Batch ${currentBatch.length} Foto...`;
+        const dataKirim = dataArray[currentIndex];
+        document.getElementById('syncProgressText').innerText = `Mengirim: ${currentIndex + 1} dari ${totalData}`;
+        document.getElementById('syncDetailText').innerText = `Data NIS: ${dataKirim.nis}`;
 
-        let namaKiosk = "Kiosk " + (localStorage.getItem("stp2k_kiosk_number") || "1"); // Ambil identitas
-        
+        let kioskId = localStorage.getItem('kiosk_id') || 'KIOSK-1';
+
         fetch(API_URL, {
             method: "POST", 
-            body: JSON.stringify({ action: "prosesBatchScanHadir", batchData: currentBatch, kioskId: namaKiosk })
+            body: JSON.stringify({ 
+                action: "prosesScanHadirSatuSaja", // Memanggil fungsi baru di GS
+                nis: dataKirim.nis, 
+                waktu: dataKirim.waktu, 
+                tanggal: dataKirim.tanggal,
+                kioskId: kioskId 
+            })
         })
         .then(res => res.json())
         .then(res => {
-            if (res.success) {
+            if(res.success) {
                 const tx = db.transaction(["scans"], "readwrite");
-                currentBatch.forEach(dataKirim => { tx.objectStore("scans").delete(dataKirim.id); });
-                
+                tx.objectStore("scans").delete(dataKirim.id); 
                 tx.oncomplete = () => {
-                    document.getElementById('badgeAntrean').innerText = totalData - Math.min(currentIndex + chunkSize, totalData);
-                    setTimeout(() => kirimDataBatch(dataArray, currentIndex + chunkSize), 2000); // Jeda 2 Detik
+                    document.getElementById('badgeAntrean').innerText = dataArray.length - (currentIndex + 1);
+                    // Jeda aman antar data 300 milidetik agar Google tidak menganggap spam
+                    setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData, isSilent), 300); 
                 };
             } else {
                 throw new Error(res.message);
@@ -491,13 +496,12 @@
             isSyncing = false; updateBadgeAntrean();
             document.getElementById('syncIcon').className = 'fas fa-exclamation-triangle text-danger fa-lg spin-icon';
             document.getElementById('syncMonitor').style.borderLeftColor = '#dc3545';
+            document.getElementById('syncProgressText').innerText = `Koneksi Terputus!`;
             
-            // PANCAKODING: Tampilkan Error Asli dari Server agar mudah di-debug
             let pesanGagal = err.message || "Gagal menghubungi Server.";
-            document.getElementById('syncProgressText').innerText = `Gagal Terkirim!`;
             document.getElementById('syncDetailText').innerHTML = `<span class="text-danger fw-bold">${pesanGagal}</span> <br> Retrying...`;
             
-            let countdown = AUTO_RETRY_DELAY_MS / 1000;
+            let countdown = 10;
             const retryInterval = setInterval(() => {
                 countdown--;
                 document.getElementById('syncDetailText').innerHTML = `<span class="text-danger fw-bold">${pesanGagal}</span> <br> Mencoba ulang dalam ${countdown} detik...`;
@@ -507,39 +511,6 @@
                 }
             }, 1000);
         });
-    }
-
-    function exportExcelOffline(isAuto = false) {
-        if (!db) return;
-        const tx = db.transaction(["scans"], "readonly");
-        const request = tx.objectStore("scans").getAll();
-        request.onsuccess = function() {
-            const dataAntrean = request.result;
-            if (dataAntrean.length === 0) return;
-            const dbLokal = JSON.parse(localStorage.getItem('db_murid_lokal') || '[]');
-            let excelData = [['No', 'Tanggal', 'Waktu', 'NISN', 'Nama Siswa', 'Kelas']];
-            dataAntrean.forEach((scan, i) => {
-                const s = dbLokal.find(x => x.nis === scan.nis) || { nama: '-', kelas: '-' };
-                excelData.push([i + 1, scan.tanggal, scan.waktu, scan.nis, s.nama, s.kelas]);
-            });
-            const ws = XLSX.utils.aoa_to_sheet(excelData); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Backup_Presensi");
-            XLSX.writeFile(wb, `Backup_Presensi_${new Date().toISOString().slice(0,10)}.xlsx`);
-        };
-    }
-
-    function updateBadgeAntrean() {
-        if(!db) return;
-        const countReq = db.transaction(["scans"], "readonly").objectStore("scans").count();
-        countReq.onsuccess = function() { document.getElementById('badgeAntrean').innerText = countReq.result; }
-    }
-    
-    function hitungTotalPresensiLokal(isScan = false) {
-        const tglHariIni = new Date().toDateString();
-        let stats = JSON.parse(localStorage.getItem('statistik_presensi') || '{"tanggal":"","count":0}');
-        if(stats.tanggal !== tglHariIni) stats = { tanggal: tglHariIni, count: 0 };
-        if(isScan) stats.count += 1;
-        localStorage.setItem('statistik_presensi', JSON.stringify(stats));
-        document.getElementById('countLokalDisplay').innerText = stats.count;
     }
 
   </script>
