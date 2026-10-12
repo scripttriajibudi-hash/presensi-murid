@@ -490,12 +490,16 @@
             isSyncing = false; updateBadgeAntrean();
             document.getElementById('syncIcon').className = 'fas fa-exclamation-triangle text-danger fa-lg spin-icon';
             document.getElementById('syncMonitor').style.borderLeftColor = '#dc3545';
-            document.getElementById('syncProgressText').innerText = `Koneksi Terputus!`;
+            
+            // PANCAKODING: Tampilkan Error Asli dari Server agar mudah di-debug
+            let pesanGagal = err.message || "Gagal menghubungi Server.";
+            document.getElementById('syncProgressText').innerText = `Gagal Terkirim!`;
+            document.getElementById('syncDetailText').innerHTML = `<span class="text-danger fw-bold">${pesanGagal}</span> <br> Retrying...`;
             
             let countdown = AUTO_RETRY_DELAY_MS / 1000;
             const retryInterval = setInterval(() => {
                 countdown--;
-                document.getElementById('syncDetailText').innerText = `Menyambung ulang dalam ${countdown} detik...`;
+                document.getElementById('syncDetailText').innerHTML = `<span class="text-danger fw-bold">${pesanGagal}</span> <br> Mencoba ulang dalam ${countdown} detik...`;
                 if(countdown <= 0) {
                     clearInterval(retryInterval);
                     mulaiSinkronisasiKeServer(true); // Coba ulang senyap
