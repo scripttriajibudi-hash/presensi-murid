@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portal Presensi v.23.1 - SMKN 1 Klaten</title>
+  <title>Portal Presensi v.24.1 - SMKN 1 Klaten</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -141,7 +141,9 @@
     // PANCAKODING V21.2: KONFIGURASI KEAMANAN & CRON HYBRID SYNC
     const ADMIN_PIN = "57465"; // PIN Super Admin untuk buka menu / otorisasi perangkat
     const DEVICE_TOKEN_KEY = "stp2k_kiosk_device_token";
-    const PERIODIC_SYNC_INTERVAL_MS = 3 * 60 * 1000; // Cek & kirim sisa data otomatis setiap 3 menit
+    // PANCAKODING V24: Anti-Tabrakan 3 PC (Base 3 menit + Acak 0 s.d 40 detik)
+    const randomJitter = Math.floor(Math.random() * 40000); 
+    const PERIODIC_SYNC_INTERVAL_MS = (3 * 60 * 1000) + randomJitter;
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const nisInput = document.getElementById('nisInput');
@@ -153,17 +155,30 @@
     window.addEventListener('DOMContentLoaded', () => { 
         cekStatusDatabaseLokal(); 
         cekOtorisasiPerangkat(); // Cek kunci perangkat saat halaman dimuat
-        
-        // Jalankan Cron Hybrid Auto-Sync setiap 3 menit
-        setInterval(() => { jalankanPeriodicAutoSync(); }, PERIODIC_SYNC_INTERVAL_MS);
+        aturJedaWaktuKiosk(); // PANCAKODING: Panggil pengatur jeda Kiosk
     });
+
+    let syncIntervalTimer;
+    function aturJedaWaktuKiosk() {
+        clearInterval(syncIntervalTimer);
+        let nomorKiosk = parseInt(localStorage.getItem("stp2k_kiosk_number")) || 1;
+        
+        // PANCAKODING: Rumus Skala Besar (Aman hingga 20 PC Kiosk)
+        // Kiosk 1: +15 dtk, Kiosk 2: +30 dtk ... Kiosk 10: +150 dtk
+        let jedaTambahan = nomorKiosk * 15000; 
+        let intervalKiosk = PERIODIC_SYNC_INTERVAL_MS + jedaTambahan; 
+        
+        console.log(`[Sistem] Kiosk ${nomorKiosk} - Interval Auto-Sync: ${intervalKiosk/1000} detik`);
+        syncIntervalTimer = setInterval(() => { jalankanPeriodicAutoSync(); }, intervalKiosk);
+    }
 
     // --- FUNGSI KEAMANAN OTORISASI PERANGKAT ---
     function cekOtorisasiPerangkat() {
         const token = localStorage.getItem(DEVICE_TOKEN_KEY);
+        const nomor = localStorage.getItem("stp2k_kiosk_number") || "?";
         const badge = document.getElementById('deviceStatusBadge');
         if (token === "STP2K_KIOSK_AUTHORIZED") {
-            if (badge) { badge.className = 'badge bg-success p-2'; badge.innerHTML = `<i class="fas fa-desktop me-1"></i> PC Kiosk Resmi`; }
+            if (badge) { badge.className = 'badge bg-success p-2'; badge.innerHTML = `<i class="fas fa-desktop me-1"></i> Kiosk ${nomor} Aktif`; }
             nisInput.disabled = false;
             nisInput.placeholder = "S C A N  H E R E";
             return true;
@@ -180,17 +195,28 @@
         Swal.fire({
             title: 'Otorisasi Mesin Kiosk',
             text: 'Masukkan PIN Master untuk mengaktifkan perangkat ini:',
-            input: 'password',
-            showCancelButton: true,
-            confirmButtonText: 'Aktifkan',
-            cancelButtonText: 'Batal'
+            input: 'password', showCancelButton: true, confirmButtonText: 'Lanjut', cancelButtonText: 'Batal'
         }).then((res) => {
             if (res.isConfirmed) {
                 if (res.value === ADMIN_PIN) {
-                    localStorage.setItem(DEVICE_TOKEN_KEY, "STP2K_KIOSK_AUTHORIZED");
-                    cekOtorisasiPerangkat();
-                    Swal.fire({ icon: 'success', title: 'Berhasil!', text: 'PC ini telah diotorisasi sebagai Mesin Presensi Resmi.', timer: 2000, showConfirmButton: false });
-                    nisInput.focus();
+                    Swal.fire({
+                        title: 'Identitas PC', 
+                        text: 'Ketik Nomor Mesin Kiosk Ini (Contoh: 1, 2, atau 10):',
+                        input: 'number', 
+                        inputAttributes: { min: 1, max: 50, step: 1 },
+                        inputValue: 1, // Default angka 1
+                        showCancelButton: false, confirmButtonText: 'Aktifkan Mesin', allowOutsideClick: false,
+                        inputValidator: (value) => {
+                            if (!value || value <= 0) return 'Nomor Kiosk harus lebih dari 0!';
+                        }
+                    }).then((kioskRes) => {
+                        localStorage.setItem(DEVICE_TOKEN_KEY, "STP2K_KIOSK_AUTHORIZED");
+                        localStorage.setItem("stp2k_kiosk_number", kioskRes.value);
+                        cekOtorisasiPerangkat();
+                        aturJedaWaktuKiosk(); // Terapkan jeda waktu baru
+                        Swal.fire({ icon: 'success', title: 'Berhasil!', text: 'PC ini terdaftar sebagai Kiosk ' + kioskRes.value, timer: 2500, showConfirmButton: false });
+                        nisInput.focus();
+                    });
                 } else {
                     Swal.fire({ icon: 'error', title: 'Akses Ditolak', text: 'PIN yang dimasukkan salah.' });
                 }
@@ -422,7 +448,7 @@
         };
     }
 
-    // PANCAKODING V22: Pengiriman Chunked Batching (15 Data & Foto per siklus)
+    // PANCAKODING V22: Pengiriman Chunked Batching (3 Data & Foto per siklus)
     function kirimDataBatch(dataArray, currentIndex) {
         const totalData = dataArray.length;
         if (currentIndex >= totalData) {
@@ -435,15 +461,17 @@
             return;
         }
         
-        const chunkSize = 15; // Payload maksimal 15 data agar jaringan ringan
+        const chunkSize = 3; // Payload maksimal 3 data agar jaringan ringan
         const currentBatch = dataArray.slice(currentIndex, currentIndex + chunkSize);
         
         document.getElementById('syncProgressText').innerText = `Mengirim: ${Math.min(currentIndex + chunkSize, totalData)} dari ${totalData}`;
         document.getElementById('syncDetailText').innerText = `Mengunggah Batch ${currentBatch.length} Foto...`;
 
+        let namaKiosk = "Kiosk " + (localStorage.getItem("stp2k_kiosk_number") || "1"); // Ambil identitas
+        
         fetch(API_URL, {
             method: "POST", 
-            body: JSON.stringify({ action: "prosesBatchScanHadir", batchData: currentBatch })
+            body: JSON.stringify({ action: "prosesBatchScanHadir", batchData: currentBatch, kioskId: namaKiosk })
         })
         .then(res => res.json())
         .then(res => {
