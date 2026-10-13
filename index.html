@@ -332,36 +332,53 @@
         const h = dNow.getHours(); const m = dNow.getMinutes(); const s = dNow.getSeconds();
         const day = dNow.getDay(); // 1 = Senin, 5 = Jumat
         
-        // V20.1 PANCAKODING: Logika Cerdas Waktu Pagi & Pulang
+        // --- PANCAKODING V25.1: MEKANISME WAKTU PRESISI ---
         const timeInSec = h * 3600 + m * 60 + s;
         let statusScan = "";
-        let color = "#198754"; // Hijau (Default)
-        let icon = "fa-check-circle";
-        let isPelanggaran = false;
+        let color = "#6c757d"; // Default Abu-abu
+        let icon = "fa-info-circle";
         
-        if (timeInSec <= 25201) { // 00:00:00 - 07:00:01
-            statusScan = "HADIR PAGI";
-        } else if (timeInSec < 36000) { // 07:00:02 - 09:59:59
-            statusScan = "TERLAMBAT PAGI";
-            color = "#dc3545"; icon = "fa-user-clock"; // Merah
-            isPelanggaran = true;
-        } else {
-            // Logika Siang/Pulang (Hari Jumat pulang jam 13:30, selainnya 15:00)
-            let batasPulangCepat = (day === 5) ? 48600 : 54000; 
-            let batasPulangTutup = 61200; // 17:00:00
-            
-            if (timeInSec < batasPulangCepat) {
-                statusScan = "PULANG CEPAT";
-                color = "#fd7e14"; icon = "fa-running"; // Oranye
-                isPelanggaran = true;
-            } else if (timeInSec <= batasPulangTutup) {
-                statusScan = "PULANG TEPAT";
-                color = "#0d6efd"; icon = "fa-home"; // Biru
+        // Variabel sakelar (Ubah ke 'true' secara manual di kode jika ada Upacara Hari Besar)
+        let isUpacaraHariBesar = false; 
+
+        if (isUpacaraHariBesar) {
+            if (timeInSec >= 21600 && timeInSec <= 32400) { // 06.00.00 - 09.00.00
+                statusScan = "HADIR UPACARA"; color = "#198754"; icon = "fa-check-circle";
+            } else if (timeInSec > 32400) { // > 09.00.00
+                statusScan = "TIDAK HADIR UPACARA"; color = "#dc3545"; icon = "fa-user-times"; 
             } else {
                 statusScan = "DI LUAR JAM";
-                color = "#6c757d"; icon = "fa-times-circle"; // Abu-abu
+            }
+        } else {
+            if (day >= 1 && day <= 4) { // Senin - Kamis
+                if (timeInSec >= 18000 && timeInSec <= 25200) { // 05.00.00 - 07.00.00
+                    statusScan = "HADIR TEPAT WAKTU"; color = "#198754"; icon = "fa-check-circle";
+                } else if (timeInSec > 25200 && timeInSec <= 43199) { // 07.01.00 - 11.59.59
+                    statusScan = "TERLAMBAT"; color = "#dc3545"; icon = "fa-user-clock"; 
+                } else if (timeInSec >= 43200 && timeInSec <= 53999) { // 12.00.00 - 14.59.59
+                    statusScan = "PULANG CEPAT"; color = "#fd7e14"; icon = "fa-running"; 
+                } else if (timeInSec >= 54000 && timeInSec <= 61200) { // 15.00.00 - 17.00.00
+                    statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
+                } else {
+                    statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
+                }
+            } else if (day === 5) { // Jumat
+                if (timeInSec >= 18000 && timeInSec <= 25200) { // 05.00.00 - 07.00.00
+                    statusScan = "HADIR TEPAT WAKTU"; color = "#198754"; icon = "fa-check-circle";
+                } else if (timeInSec > 25200 && timeInSec <= 39600) { // 07.01.00 - 11.00.00
+                    statusScan = "TERLAMBAT"; color = "#dc3545"; icon = "fa-user-clock"; 
+                } else if (timeInSec > 39600 && timeInSec <= 48599) { // 11.01.00 - 13.29.59
+                    statusScan = "PULANG CEPAT"; color = "#fd7e14"; icon = "fa-running"; 
+                } else if (timeInSec >= 48600 && timeInSec <= 61200) { // 13.30.00 - 17.00.00
+                    statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
+                } else {
+                    statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
+                }
+            } else { // Sabtu / Minggu
+                statusScan = "HARI LIBUR"; color = "#6c757d"; icon = "fa-calendar-times";
             }
         }
+        // ------------------------------------------------
 
         // PANCAKODING V22: Optimasi Resolusi Canvas (320x240) -> Ukuran ~15-20 KB
         const targetWidth = 320;
