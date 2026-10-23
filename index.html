@@ -190,50 +190,36 @@
         }
     }
 
-    // --- PANCAKODING: FUNGSI KEAMANAN OTORISASI PERANGKAT (UPDATE LOG SPREADSHEET) ---
     function mintaOtorisasiPerangkat() {
         if (cekOtorisasiPerangkat()) return; // Jika sudah aktif, abaikan
-        
         Swal.fire({
-            title: '<i class="fas fa-lock text-danger mb-2 fa-2x"></i><br>Buka Kunci Mesin',
+            title: 'Otorisasi Mesin Kiosk',
             text: 'Masukkan PIN Master untuk mengaktifkan perangkat ini:',
-            input: 'password', 
-            showCancelButton: true, 
-            confirmButtonText: '<i class="fas fa-key me-2"></i>Verifikasi & Buka', 
-            cancelButtonText: 'Batal',
-            confirmButtonColor: '#198754'
+            input: 'password', showCancelButton: true, confirmButtonText: 'Lanjut', cancelButtonText: 'Batal'
         }).then((res) => {
-            if (res.isConfirmed && res.value) {
-                Swal.fire({
-                    title: 'Identitas PC', 
-                    text: 'Ketik Nomor Mesin Kiosk Ini (Contoh: 1, 2, atau 10):',
-                    input: 'number', 
-                    inputAttributes: { min: 1, max: 50, step: 1 },
-                    inputValue: 1,
-                    showCancelButton: false, confirmButtonText: 'Aktifkan Mesin', allowOutsideClick: false,
-                    inputValidator: (value) => {
-                        if (!value || value <= 0) return 'Nomor Kiosk harus lebih dari 0!';
-                    }
-                }).then((kioskRes) => {
-                    let nomorKioskValue = kioskRes.value || 1;
-                    let namaKioskLengkap = 'Kiosk ' + nomorKioskValue;
-                    
-                    Swal.fire({ title: 'Memverifikasi PIN & Mencatat Log Server...', didOpen: () => Swal.showLoading() });
-                    
-                    // Eksekusi ke Backend Pencatatan
-                    google.script.run.withSuccessHandler(serverRes => {
-                        if (serverRes.success) {
-                            localStorage.setItem(DEVICE_TOKEN_KEY, "STP2K_KIOSK_AUTHORIZED");
-                            localStorage.setItem("stp2k_kiosk_number", nomorKioskValue);
-                            cekOtorisasiPerangkat();
-                            aturJedaWaktuKiosk(); // Terapkan jeda waktu baru
-                            Swal.fire({ icon: 'success', title: 'Berhasil!', text: serverRes.message, timer: 3000, showConfirmButton: false });
-                            nisInput.focus();
-                        } else {
-                            Swal.fire({ icon: 'error', title: 'Akses Ditolak', text: serverRes.message });
+            if (res.isConfirmed) {
+                if (res.value === ADMIN_PIN) {
+                    Swal.fire({
+                        title: 'Identitas PC', 
+                        text: 'Ketik Nomor Mesin Kiosk Ini (Contoh: 1, 2, atau 10):',
+                        input: 'number', 
+                        inputAttributes: { min: 1, max: 50, step: 1 },
+                        inputValue: 1, // Default angka 1
+                        showCancelButton: false, confirmButtonText: 'Aktifkan Mesin', allowOutsideClick: false,
+                        inputValidator: (value) => {
+                            if (!value || value <= 0) return 'Nomor Kiosk harus lebih dari 0!';
                         }
-                    }).verifikasiPinDanLogKiosk(res.value, namaKioskLengkap);
-                });
+                    }).then((kioskRes) => {
+                        localStorage.setItem(DEVICE_TOKEN_KEY, "STP2K_KIOSK_AUTHORIZED");
+                        localStorage.setItem("stp2k_kiosk_number", kioskRes.value);
+                        cekOtorisasiPerangkat();
+                        aturJedaWaktuKiosk(); // Terapkan jeda waktu baru
+                        Swal.fire({ icon: 'success', title: 'Berhasil!', text: 'PC ini terdaftar sebagai Kiosk ' + kioskRes.value, timer: 2500, showConfirmButton: false });
+                        nisInput.focus();
+                    });
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Akses Ditolak', text: 'PIN yang dimasukkan salah.' });
+                }
             }
         });
     }
