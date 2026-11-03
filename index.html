@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portal Presensi v.26 - SMKN 1 Klaten</title>
+  <title>Portal Presensi v.27.8 - SMKN 1 Klaten</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -354,9 +354,17 @@
                     statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
                 } else if (timeInSec > 25200 && timeInSec <= 43199) { // 07.01.00 - 11.59.59
                     statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
-                } else if (timeInSec >= 43200 && timeInSec <= 53999) { // 12.00.00 - 14.59.59
-                    statusScan = "PULANG CEPAT"; color = "#fd7e14"; icon = "fa-running"; 
-                } else if (timeInSec >= 54000 && timeInSec <= 61200) { // 15.00.00 - 17.00.00
+                } else if (timeInSec >= 43200 && timeInSec < 55800) { // 12.00.00 - 15.29.59 (Belum 15:30)
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'PRESENSI ANDA DITOLAK',
+                        html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>
+                               <p class="mb-0 text-muted fw-bold">Senin-Kamis (15.30)<br>Jum'at (13.30)</p>`,
+                        timer: 3500,
+                        showConfirmButton: false
+                    });
+                    isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
+                } else if (timeInSec >= 55800 && timeInSec <= 61200) { // 15.30.00 - 17.00.00
                     statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
                 } else {
                     statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
@@ -366,8 +374,16 @@
                     statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
                 } else if (timeInSec > 25200 && timeInSec <= 39600) { // 07.01.00 - 11.00.00
                     statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
-                } else if (timeInSec > 39600 && timeInSec <= 48599) { // 11.01.00 - 13.29.59
-                    statusScan = "PULANG CEPAT"; color = "#fd7e14"; icon = "fa-running"; 
+                } else if (timeInSec > 39600 && timeInSec < 48600) { // 11.01.00 - 13.29.59 (Belum 13:30)
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'PRESENSI ANDA DITOLAK',
+                        html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>
+                               <p class="mb-0 text-muted fw-bold">Senin-Kamis (15.30)<br>Jum'at (13.30)</p>`,
+                        timer: 3500,
+                        showConfirmButton: false
+                    });
+                    isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
                 } else if (timeInSec >= 48600 && timeInSec <= 61200) { // 13.30.00 - 17.00.00
                     statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
                 } else {
@@ -375,6 +391,33 @@
                 }
             } else { // Sabtu / Minggu
                 statusScan = "HARI LIBUR"; color = "#6c757d"; icon = "fa-calendar-times";
+            }
+        }
+        // ------------------------------------------------
+        // --- PANCAKODING V27.4: CACHE LOKAL ANTI-SCAN GANDA (POP-UP INSTAN) ---
+        let sesiDeteksi = statusScan.includes("PAGI") ? "Pagi" : (statusScan.includes("PULANG") ? "Siang/Pulang" : "Luar Jam");
+
+        if (sesiDeteksi !== "Luar Jam") {
+            let riwayatLokal = JSON.parse(localStorage.getItem('riwayat_scan_lokal') || '{"tanggal":"","data":{}}');
+            // Reset memori jika berganti hari
+            if (riwayatLokal.tanggal !== tglStr) { riwayatLokal = { tanggal: tglStr, data: {} }; }
+
+            // Deteksi jika NIS sudah ada di memori cache hari ini pada sesi yang sama
+            if (riwayatLokal.data[nis] === sesiDeteksi) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'TIDAK VALID!',
+                    html: `<h4 class="text-danger fw-bold mt-2">${student.nama}</h4>
+                           <h5 class="fw-bold">ANDA sudah presensi ${sesiDeteksi} hari ini!</h5>
+                           <p class="mb-0 text-muted">Sistem memblokir scan lebih dari 1x.</p>`,
+                    timer: 3500,
+                    showConfirmButton: false
+                });
+                isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return; // Hentikan eksekusi kode di bawahnya!
+            } else {
+                // Jika belum, catat NIS ke memori cache lokal
+                riwayatLokal.data[nis] = sesiDeteksi;
+                localStorage.setItem('riwayat_scan_lokal', JSON.stringify(riwayatLokal));
             }
         }
         // ------------------------------------------------
@@ -500,11 +543,22 @@
                 tx.objectStore("scans").delete(dataKirim.id); 
                 tx.oncomplete = () => {
                     document.getElementById('badgeAntrean').innerText = dataArray.length - (currentIndex + 1);
-                    // Jeda aman antar data 300 milidetik agar Google tidak menganggap spam
                     setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData, isSilent), 300); 
                 };
             } else {
-                throw new Error(res.message);
+                // --- PANCAKODING V27.4: HAPUS ANTREAN JIKA DITOLAK SERVER (DUPLIKAT BEDA KIOSK) ---
+                if (res.message && res.message.toLowerCase().includes('sudah melakukan presensi')) {
+                    const tx = db.transaction(["scans"], "readwrite");
+                    tx.objectStore("scans").delete(dataKirim.id); // Hapus agar tidak nyangkut (clogging)
+                    tx.oncomplete = () => {
+                        console.warn(`[Auto-Clear] Sinkronisasi Dihapus: ${res.message}`);
+                        document.getElementById('badgeAntrean').innerText = dataArray.length - (currentIndex + 1);
+                        setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData, isSilent), 300);
+                    };
+                } else {
+                    // Jika error asli (misal limit kuota API google), tetap lempar ke mode Retry
+                    throw new Error(res.message); 
+                }
             }
         }).catch(err => {
             isSyncing = false; updateBadgeAntrean();
