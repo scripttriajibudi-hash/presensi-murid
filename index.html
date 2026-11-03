@@ -38,7 +38,7 @@
       <i class="fas fa-school fa-2x me-3 text-primary"></i>
       <div>
         <h4 class="mb-0 fw-bold">Anjungan Presensi Murid</h4>
-        <small class="text-info fw-semibold">SMK Negeri 1 Klaten V.2 </small>
+        <small class="text-info fw-semibold">SMK Negeri 1 Klaten Ver. 2</small>
       </div>
     </div>
     
@@ -81,12 +81,12 @@
 
       <div class="col-md-6 d-flex flex-column align-items-center justify-content-center">
         <div class="card border-0 shadow-lg p-5 w-100" style="border-radius: 20px;">
-          <h2 class="fw-bold text-center mb-4">Silakan Scan Kartu<br>QR PRESENSI</h2>
+          <h2 class="fw-bold text-center mb-4">Silakan Scan Kartu<br>QR PRESENSI Anda</h2>
           
           <input type="number" class="form-control input-barcode bg-light mb-2" id="nisInput" placeholder="S C A N  H E R E" autofocus>
           
           <div class="text-center mb-4 text-muted fw-bold">
-            Total Presensi Mesin Pada Hari Ini: <span id="countLokalDisplay" class="text-primary fs-5">0</span> Murid
+            Total Presensi Mesin Hari Ini: <span id="countLokalDisplay" class="text-primary fs-5">0</span> Murid
           </div>
           
           <!-- Indikator Folder Aktif -->
@@ -316,6 +316,23 @@
 
         const nis = this.value.trim();
         if (!nis || isProcessing) return;
+
+        // --- PANCAKODING: VALIDASI ANTI-SPAM QR CODE ---
+        const polaNisValid = /^[0-9]{4,10}$/; // Format wajib angka 4-10 digit
+        if (!polaNisValid.test(nis)) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Format Tidak Dikenali!',
+                html: '<h5 class="mt-2">Gunakan Kartu Presensi Resmi</h5><p class="text-muted">Pastikan QR Code yang Anda scan adalah benar.</p>',
+                timer: 3500,
+                showConfirmButton: false
+            });
+            this.value = ''; 
+            this.focus();
+            return; // Hentikan eksekusi seketika agar tidak lanjut membebani sistem
+        }
+        // --- AKHIR VALIDASI ---
+
         isProcessing = true; this.disabled = true;
 
         const dbLokal = JSON.parse(localStorage.getItem('db_murid_lokal') || '[]');
