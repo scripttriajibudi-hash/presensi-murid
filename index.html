@@ -29,6 +29,28 @@
     }
     .spin-icon { animation: spin 1.5s linear infinite; }
     @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    /* --- PANCAKODING: CSS RUNNING TEXT --- */
+    .marquee-top {
+        background-color: #0f172a; /* Biru Dongker/Navy gelap (Kesan Resmi & Baku) */
+        color: #ffc107; /* Kuning Emas (Kesan Berwibawa & Bernilai Tinggi) */
+        padding: 6px 0;
+        font-weight: 700;
+        font-size: 1.1rem;
+        letter-spacing: 1px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        z-index: 5;
+    }
+    .marquee-bottom {
+        background-color: #dc3545; /* Merah Menyala (Kesan Membakar Semangat) */
+        color: #ffffff; /* Putih Bersih (Kontras maksimal, sangat mudah dibaca) */
+        padding: 8px 0;
+        font-weight: 800;
+        font-size: 1.2rem;
+        letter-spacing: 1.5px;
+        box-shadow: 0 -4px 10px rgba(0,0,0,0.15);
+        z-index: 5;
+    }
   </style>
 </head>
 <body>
@@ -60,6 +82,12 @@
     </div>
   </div>
 
+  <!-- PANCAKODING: RUNNING TEXT ATAS (NILAI BAKU) -->
+  <div class="marquee-top">
+    <marquee behavior="scroll" direction="left" scrollamount="6">
+      <i class="fas fa-balance-scale me-2"></i> Core Value Integritas : jujur, disiplin, peduli, mandiri, tanggung jawab, kerja keras, sederhana, berani, dan adil. <i class="fas fa-balance-scale ms-2"></i>
+    </marquee>
+  </div>
   <div class="container-fluid flex-grow-1 d-flex align-items-center justify-content-center p-4">
     <div class="row w-100 max-w-1200">
       
@@ -101,7 +129,12 @@
       </div>
     </div>
   </div>
-
+        <!-- PANCAKODING: RUNNING TEXT BAWAH (PENYEMANGAT) -->
+  <div class="marquee-bottom">
+    <marquee behavior="scroll" direction="left" scrollamount="8">
+      <i class="fas fa-fire me-2 text-warning"></i> Jangan menyerah, aku tahu ini berat, pasti Kamu bisa Sobat <i class="fas fa-fire ms-2 text-warning"></i>
+    </marquee>
+  </div>
 <!-- MODAL MENU ADMIN (HAMBURGER MENU) -->
   <div class="modal fade" id="modalMenuAdmin" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
