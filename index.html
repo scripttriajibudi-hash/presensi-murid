@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Portal Presensi v.27.8 - SMKN 1 Klaten</title>
+  <title>Portal Presensi v.27.8.1 - SMKN 1 Klaten</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -132,7 +132,14 @@
         <div class="modal-body p-4">
           <div class="d-grid gap-3">
             <button class="btn btn-outline-info fw-bold py-2 text-start" onclick="downloadDatabaseMurid()"><i class="fas fa-sync-alt me-2"></i> 1. Update DB Murid Lokal</button>
-            <button class="btn btn-warning fw-bold py-2 text-start" onclick="mulaiSinkronisasiKeServer()"><i class="fas fa-paper-plane me-2"></i> 2. Kirim Ke Server (<span id="badgeAntrean">0</span> Data)</button>
+            <div class="d-flex gap-2">
+  <button class="btn btn-warning fw-bold py-2 text-start flex-grow-1" onclick="mulaiSinkronisasiKeServer()">
+    <i class="fas fa-paper-plane me-2"></i> 2. Kirim Ke Server (<span id="badgeAntrean">0</span> Data)
+  </button>
+  <button class="btn btn-danger fw-bold py-2 px-3 shadow-sm" onclick="clearAntreanLokal()" title="Hapus Paksa Antrean Nyangkut">
+    <i class="fas fa-trash-alt"></i> Reset
+  </button>
+</div>
             <button class="btn btn-success fw-bold py-2 text-start" onclick="exportExcelOffline()"><i class="fas fa-file-excel me-2"></i> 3. Backup Excel Offline</button>
             <button class="btn btn-primary fw-bold py-2 text-start" onclick="aturFolderFoto()"><i class="fas fa-folder-open me-2"></i> 4. Set Folder Foto Lokal</button>
             <hr class="my-1">
@@ -582,19 +589,20 @@
                     setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData, isSilent), 300); 
                 };
             } else {
-                // --- PANCAKODING V27.4: HAPUS ANTREAN JIKA DITOLAK SERVER (DUPLIKAT BEDA KIOSK) ---
-                if (res.message && res.message.toLowerCase().includes('sudah melakukan presensi')) {
-                    const tx = db.transaction(["scans"], "readwrite");
-                    tx.objectStore("scans").delete(dataKirim.id); // Hapus agar tidak nyangkut (clogging)
-                    tx.oncomplete = () => {
-                        console.warn(`[Auto-Clear] Sinkronisasi Dihapus: ${res.message}`);
-                        document.getElementById('badgeAntrean').innerText = dataArray.length - (currentIndex + 1);
-                        setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData, isSilent), 300);
-                    };
-                } else {
-                    // Jika error asli (misal limit kuota API google), tetap lempar ke mode Retry
-                    throw new Error(res.message); 
-                }
+                // --- PANCAKODING V27.4.1 FIX: HAPUS ANTREAN JIKA DITOLAK SERVER SECARA LOGIKA ---
+const msg = (res.message || "").toLowerCase();
+if (msg.includes('sudah melakukan presensi') || msg.includes('tidak ditemukan') || msg.includes('belum saatnya pulang') || msg.includes('ditolak')) {
+    const tx = db.transaction(["scans"], "readwrite");
+    tx.objectStore("scans").delete(dataKirim.id); // Hapus agar tidak nyangkut (clogging)
+    tx.oncomplete = () => {
+        console.warn(`[Auto-Clear] Sinkronisasi Di-Skip: ${res.message}`);
+        document.getElementById('badgeAntrean').innerText = dataArray.length - (currentIndex + 1);
+        setTimeout(() => kirimDataSatuPerSatu(dataArray, currentIndex + 1, totalData, isSilent), 300);
+    };
+} else {
+    // Jika error asli (misal limit kuota API google), tetap lempar ke mode Retry
+    throw new Error(res.message); 
+}
             }
         }).catch(err => {
             isSyncing = false; updateBadgeAntrean();
@@ -634,6 +642,38 @@
             XLSX.writeFile(wb, `Backup_Presensi_${new Date().toISOString().slice(0,10)}.xlsx`);
         };
     }
+
+    // --- PANCAKODING FIX: TOMBOL RESET ANTREAN LOKAL ---
+function clearAntreanLokal() {
+    Swal.fire({
+        title: 'Hapus Paksa Antrean?',
+        html: "Tindakan ini akan <b>menghapus permanen</b> seluruh tumpukan data gagal kirim di Kiosk PC ini.<br><br>Gunakan jika antrean error atau nyangkut parah.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '<i class="fas fa-trash-alt me-2"></i>Ya, Kosongkan!'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            if (!db) return Swal.fire('Error', 'Database Kiosk belum siap.', 'error');
+            
+            const tx = db.transaction(["scans"], "readwrite");
+            const store = tx.objectStore("scans");
+            const clearRequest = store.clear(); // Bersihkan IndexedDB seketika
+
+            clearRequest.onsuccess = function() {
+                updateBadgeAntrean(); // Reset angka badge ke 0
+                isSyncing = false;    // Hentikan state sinkronisasi jika sedang berjalan
+                document.getElementById('syncMonitor').classList.add('d-none'); // Sembunyikan panel monitor
+                Swal.fire('Terhapus!', 'Ribuan data antrean lama berhasil dikosongkan. Mesin siap digunakan normal.', 'success');
+            };
+            
+            clearRequest.onerror = function() {
+                Swal.fire('Gagal', 'Tidak dapat mengakses database lokal PC.', 'error');
+            };
+        }
+    });
+}
 
     function updateBadgeAntrean() {
         if(!db) return;
