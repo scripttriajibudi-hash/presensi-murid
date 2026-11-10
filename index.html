@@ -324,6 +324,7 @@
       .then(res => res.json()).then(res => {
         if(res.success) {
           localStorage.setItem('db_murid_lokal', JSON.stringify(res.data));
+          if(res.shift) localStorage.setItem('db_shift_lokal', JSON.stringify(res.shift)); // PANCAKODING: Simpan shift lokal
           cekStatusDatabaseLokal(); 
           Swal.fire({ icon: 'success', title: 'Berhasil', text: `${res.data.length} data murid tersimpan!`, timer: 2000, showConfirmButton: false });
           nisInput.focus();
@@ -375,13 +376,31 @@
         const h = dNow.getHours(); const m = dNow.getMinutes(); const s = dNow.getSeconds();
         const day = dNow.getDay(); // 1 = Senin, 5 = Jumat
         
-        // --- PANCAKODING V26.1: MEKANISME WAKTU PRESISI (DUA SESI) ---
+// --- PANCAKODING V26.1: MEKANISME WAKTU PRESISI (SHIFT DINAMIS) ---
         const timeInSec = h * 3600 + m * 60 + s;
-        let statusScan = "";
-        let color = "#6c757d"; // Default Abu-abu
-        let icon = "fa-info-circle";
+        let statusScan = ""; let color = "#6c757d"; let icon = "fa-info-circle";
         
-        let isUpacaraHariBesar = false; 
+        let tingkatKelas = "";
+        if (student.kelas.startsWith("X ") || student.kelas.startsWith("10 ")) tingkatKelas = "X";
+        else if (student.kelas.startsWith("XI ") || student.kelas.startsWith("11 ")) tingkatKelas = "XI";
+        else if (student.kelas.startsWith("XII ") || student.kelas.startsWith("12 ")) tingkatKelas = "XII";
+
+        // Tarik Jadwal Dinamis dari Local Storage
+        let jadwal = { bukaPagi: 19800, batasMasuk: 25200, blokirPagi: 55800, tutupPulang: 61200 }; // Default 05:30 - 07:00
+        const shiftLokal = JSON.parse(localStorage.getItem('db_shift_lokal') || '[]');
+        
+        let todayTime = new Date(dNow.getFullYear(), dNow.getMonth(), dNow.getDate()).getTime();
+
+        for (let i = shiftLokal.length - 1; i >= 0; i--) {
+            let row = shiftLokal[i];
+            if (todayTime >= row.tglMulai && todayTime <= row.tglAkhir) {
+                if (row.tingkat === "Semua" || row.tingkat === tingkatKelas) { jadwal = row; break; }
+            }
+        }
+        
+        const batasToleransiTelat = jadwal.batasMasuk + 10800; // Maksimal absen 3 jam setelah bel masuk
+
+        let isUpacaraHariBesar = false;
 
         if (isUpacaraHariBesar) {
             if (timeInSec >= 21600 && timeInSec <= 32400) { // 06.00.00 - 09.00.00
@@ -393,46 +412,32 @@
             }
         } else {
             if (day >= 1 && day <= 4) { // Senin - Kamis
-                if (timeInSec >= 18000 && timeInSec <= 25200) { // 05.00.00 - 07.00.00
+                if (timeInSec >= jadwal.bukaPagi && timeInSec <= jadwal.batasMasuk) {
                     statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
-                } else if (timeInSec > 25200 && timeInSec <= 43199) { // 07.01.00 - 11.59.59
+                } else if (timeInSec > jadwal.batasMasuk && timeInSec <= batasToleransiTelat) { 
                     statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
-                } else if (timeInSec >= 43200 && timeInSec < 55800) { // 12.00.00 - 15.29.59 (Belum 15:30)
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'PRESENSI ANDA DITOLAK',
-                        html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>
-                               <p class="mb-0 text-muted fw-bold">Senin-Kamis (15.30)<br>Jum'at (13.30)</p>`,
-                        timer: 3500,
-                        showConfirmButton: false
-                    });
+                } else if (timeInSec > batasToleransiTelat && timeInSec < jadwal.blokirPagi) { 
+                    Swal.fire({ icon: 'error', title: 'PRESENSI DITOLAK', html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>`, timer: 3500, showConfirmButton: false });
                     isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
-                } else if (timeInSec >= 55800 && timeInSec <= 61200) { // 15.30.00 - 17.00.00
+                } else if (timeInSec >= jadwal.blokirPagi && timeInSec <= jadwal.tutupPulang) { 
                     statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
                 } else {
                     statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
                 }
-            } else if (day === 5) { // Jumat
-                if (timeInSec >= 18000 && timeInSec <= 25200) { // 05.00.00 - 07.00.00
+            } else if (day === 5) { // Khusus Jumat
+                if (timeInSec >= jadwal.bukaPagi && timeInSec <= jadwal.batasMasuk) {
                     statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
-                } else if (timeInSec > 25200 && timeInSec <= 39600) { // 07.01.00 - 11.00.00
+                } else if (timeInSec > jadwal.batasMasuk && timeInSec <= batasToleransiTelat) { 
                     statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
-                } else if (timeInSec > 39600 && timeInSec < 48600) { // 11.01.00 - 13.29.59 (Belum 13:30)
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'PRESENSI ANDA DITOLAK',
-                        html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>
-                               <p class="mb-0 text-muted fw-bold">Senin-Kamis (15.30)<br>Jum'at (13.30)</p>`,
-                        timer: 3500,
-                        showConfirmButton: false
-                    });
+                } else if (timeInSec > batasToleransiTelat && timeInSec < 48600) { // Tolak sebelum jam 13:30
+                    Swal.fire({ icon: 'error', title: 'PRESENSI DITOLAK', html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>`, timer: 3500, showConfirmButton: false });
                     isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
-                } else if (timeInSec >= 48600 && timeInSec <= 61200) { // 13.30.00 - 17.00.00
+                } else if (timeInSec >= 48600 && timeInSec <= jadwal.tutupPulang) { 
                     statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
                 } else {
                     statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
                 }
-            } else { // Sabtu / Minggu
+            } else { // Sabtu - Minggu
                 statusScan = "HARI LIBUR"; color = "#6c757d"; icon = "fa-calendar-times";
             }
         }
