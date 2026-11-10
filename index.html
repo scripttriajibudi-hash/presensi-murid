@@ -379,7 +379,7 @@
 // --- PANCAKODING V26.1: MEKANISME WAKTU PRESISI (SHIFT DINAMIS) ---
         const timeInSec = h * 3600 + m * 60 + s;
         let statusScan = ""; let color = "#6c757d"; let icon = "fa-info-circle";
-        
+// --- PANCAKODING V27.9 FIX: LOGIKA WAKTU (SHIFT DINAMIS & ANTI-BUG EARLY SCAN) ---
         let tingkatKelas = "";
         if (student.kelas.startsWith("X ") || student.kelas.startsWith("10 ")) tingkatKelas = "X";
         else if (student.kelas.startsWith("XI ") || student.kelas.startsWith("11 ")) tingkatKelas = "XI";
@@ -393,7 +393,8 @@
 
         for (let i = shiftLokal.length - 1; i >= 0; i--) {
             let row = shiftLokal[i];
-            if (todayTime >= row.tglMulai && todayTime <= row.tglAkhir) {
+            // Fix 1: Toleransi Timezone 12 jam (43200000 ms) agar tanggal pasti terbaca cocok
+            if (todayTime >= (row.tglMulai - 43200000) && todayTime <= (row.tglAkhir + 43200000)) {
                 if (row.tingkat === "Semua" || row.tingkat === tingkatKelas) { jadwal = row; break; }
             }
         }
@@ -412,12 +413,13 @@
             }
         } else {
             if (day >= 1 && day <= 4) { // Senin - Kamis
-                if (timeInSec >= jadwal.bukaPagi && timeInSec <= jadwal.batasMasuk) {
+                // Fix 2: Mendukung siswa datang sangat pagi (sebelum Buka Pagi shift)
+                if (timeInSec <= jadwal.batasMasuk) {
                     statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
                 } else if (timeInSec > jadwal.batasMasuk && timeInSec <= batasToleransiTelat) { 
                     statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
                 } else if (timeInSec > batasToleransiTelat && timeInSec < jadwal.blokirPagi) { 
-                    Swal.fire({ icon: 'error', title: 'PRESENSI DITOLAK', html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>`, timer: 3500, showConfirmButton: false });
+                    Swal.fire({ icon: 'error', title: 'PRESENSI DITOLAK', html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4><p class="text-muted small">Waktu blokir aktif agar tidak terjadi scan ganda pagi.</p>`, timer: 3500, showConfirmButton: false });
                     isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
                 } else if (timeInSec >= jadwal.blokirPagi && timeInSec <= jadwal.tutupPulang) { 
                     statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
@@ -425,7 +427,7 @@
                     statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
                 }
             } else if (day === 5) { // Khusus Jumat
-                if (timeInSec >= jadwal.bukaPagi && timeInSec <= jadwal.batasMasuk) {
+                if (timeInSec <= jadwal.batasMasuk) {
                     statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
                 } else if (timeInSec > jadwal.batasMasuk && timeInSec <= batasToleransiTelat) { 
                     statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
@@ -441,6 +443,7 @@
                 statusScan = "HARI LIBUR"; color = "#6c757d"; icon = "fa-calendar-times";
             }
         }
+// --------------------------------------------------------------------------------------
         // ------------------------------------------------
         // --- PANCAKODING V27.4: CACHE LOKAL ANTI-SCAN GANDA (POP-UP INSTAN) ---
         let sesiDeteksi = statusScan.includes("PAGI") ? "Pagi" : (statusScan.includes("PULANG") ? "Siang/Pulang" : "Luar Jam");
