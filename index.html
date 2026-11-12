@@ -376,6 +376,10 @@
         const h = dNow.getHours(); const m = dNow.getMinutes(); const s = dNow.getSeconds();
         const day = dNow.getDay(); // 1 = Senin, 5 = Jumat
         
+// PANCAKODING FIX: Deklarasikan timeInSec dan variabel UI agar JavaScript tidak mati
+const timeInSec = (h * 3600) + (m * 60) + s;
+let statusScan = ''; let color = ''; let icon = '';
+
 // --- PANCAKODING V28.2 FIX: RULES ENGINE LOKAL (SINKRON DENGAN BACKEND) ---
         let tingkatKelas = "";
         if (student.kelas.startsWith("X ") || student.kelas.startsWith("10 ")) tingkatKelas = "X";
@@ -388,7 +392,6 @@
         const todayDateStr = dNow.getFullYear() + "-" + String(dNow.getMonth() + 1).padStart(2, '0') + "-" + String(dNow.getDate()).padStart(2, '0');
         const shiftLokal = JSON.parse(localStorage.getItem('db_shift_lokal') || '[]');
         
-        // Cari Rule Paling Valid (Mirip Engine Code.gs)
         for (let i = 0; i < shiftLokal.length; i++) {
             let r = shiftLokal[i];
             let matchTgl = (r.tipe === 'TANGGAL' && r.hariTgl === todayDateStr);
@@ -408,36 +411,34 @@
             }
         }
 
-        // Terapkan Keputusan Waktu
+        // Terapkan Keputusan Waktu (Memakai Jam Blokir Dinamis)
         if (!jadwal || jadwal.kategori === 'Libur') {
             statusScan = "HARI LIBUR / TIDAK ADA JADWAL"; color = "#6c757d"; icon = "fa-calendar-times";
         } else if (jadwal.kategori === 'Upacara') {
             if (timeInSec >= jadwal.bukaPagi && timeInSec <= jadwal.batasMasuk) {
                 statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
-            } else if (timeInSec > jadwal.batasMasuk && timeInSec <= jadwal.blokirPagi) {
+            } else if (timeInSec > jadwal.batasMasuk && timeInSec <= jadwal.jamBlokirMasuk) {
                 statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
-            } else if (timeInSec > jadwal.blokirPagi) {
+            } else if (timeInSec > jadwal.jamBlokirMasuk) {
                 statusScan = "TIDAK HADIR UPACARA"; color = "#dc3545"; icon = "fa-user-times"; 
             } else {
                 statusScan = "DI LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
             }
         } else {
-            const batasToleransiTelat = jadwal.batasMasuk + 10800;
             if (timeInSec >= jadwal.bukaPagi && timeInSec <= jadwal.batasMasuk) {
                 statusScan = "HADIR TEPAT WAKTU PAGI"; color = "#198754"; icon = "fa-check-circle";
-            } else if (timeInSec > jadwal.batasMasuk && timeInSec <= batasToleransiTelat) { 
+            } else if (timeInSec > jadwal.batasMasuk && timeInSec <= jadwal.jamBlokirMasuk) { 
                 statusScan = "TERLAMBAT PAGI"; color = "#dc3545"; icon = "fa-user-clock"; 
-            } else if (timeInSec > batasToleransiTelat && timeInSec < jadwal.blokirPagi) { 
-                Swal.fire({ icon: 'error', title: 'PRESENSI DITOLAK', html: `<h4 class="text-danger fw-bold mt-2">BELUM SAATNYA PULANG</h4>`, timer: 3500, showConfirmButton: false });
+            } else if (timeInSec > jadwal.jamBlokirMasuk && timeInSec < jadwal.mulaiPulang) { 
+                Swal.fire({ icon: 'error', title: 'PRESENSI DITOLAK', html: `<h4 class="text-danger fw-bold mt-2">WAKTU DIBLOKIR / BELUM SAATNYA PULANG</h4>`, timer: 3500, showConfirmButton: false });
                 isProcessing = false; this.disabled = false; this.value = ''; this.focus(); return;
-            } else if (timeInSec >= jadwal.blokirPagi && timeInSec <= jadwal.tutupPulang) { 
+            } else if (timeInSec >= jadwal.mulaiPulang && timeInSec <= jadwal.tutupPulang) { 
                 statusScan = "PULANG TEPAT WAKTU"; color = "#0d6efd"; icon = "fa-home";
             } else {
                 statusScan = "TIDAK ABSEN PULANG / LUAR JAM"; color = "#6c757d"; icon = "fa-times-circle";
             }
         }
-// --------------------------------------------------------------------------------------
-        // ------------------------------------------------
+// ------------------------------------------------
         // --- PANCAKODING V27.4: CACHE LOKAL ANTI-SCAN GANDA (POP-UP INSTAN) ---
         let sesiDeteksi = statusScan.includes("PAGI") ? "Pagi" : (statusScan.includes("PULANG") ? "Siang/Pulang" : "Luar Jam");
 
